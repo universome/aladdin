@@ -1,0 +1,9 @@
+[package]
+name = "aladdin"
+version = "0.1.0"
+authors = [
+    "Paul Loyd <pavelko95@gmail.com>",
+    "Ivan Skorokhodov <iskorokhodov@gmail.com>"
+]
+
+[dependencies]
