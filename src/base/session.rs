@@ -6,6 +6,7 @@ use hyper::status::StatusCode;
 use kuchiki;
 use kuchiki::NodeRef;
 use kuchiki::traits::ParserExt;
+use rustc_serialize::json::Json;
 
 use base::Prime;
 
@@ -27,18 +28,28 @@ impl Session {
         }
     }
 
-    pub fn get(&self, path: &str) -> Prime<Response> {
-        self.request(path, None, Headers::new())
+    pub fn get(&self, path: &str, headers: Headers) -> Prime<Response> {
+        self.request(path, None, headers)
+    }
+
+    pub fn post(&self, path: &str, body: &str, headers: Headers) -> Prime<Response> {
+        self.request(path, Some(body), headers)
     }
 
     pub fn get_html(&self, path: &str) -> Prime<NodeRef> {
-        let response = try!(self.get(path));
-        let html = try!(kuchiki::parse_html().from_http(response));
-        Ok(html)
+        let mut headers = Headers::new();
+        headers.set(Accept(vec![qitem(mime!(Text/Html))]));
+
+        let response = try!(self.get(path, headers));
+        Ok(try!(kuchiki::parse_html().from_http(response)))
     }
 
-    pub fn post(&self, path: &str, body: &str) -> Prime<Response> {
-        self.request(path, Some(body), Headers::new())
+    pub fn get_json(&self, path: &str) -> Prime<Json> {
+        let mut headers = Headers::new();
+        headers.set(Accept(vec![qitem(mime!(Application/Json))]));
+
+        let mut response = try!(self.get(path, headers));
+        Ok(try!(Json::from_reader(&mut response)))
     }
 
     pub fn post_form(&self, path: &str, data: &[(&str, &str)]) -> Prime<Response> {
@@ -50,11 +61,7 @@ impl Session {
         headers.set(ContentType(mime!(Application/WwwFormUrlEncoded)));
         headers.set(Accept(vec![qitem(mime!(Application/Json))]));
 
-        self.post_with_headers(path, &encoded, headers)
-    }
-
-    pub fn post_with_headers(&self, path: &str, body: &str, headers: Headers) -> Prime<Response> {
-        self.request(path, Some(body), headers)
+        self.post(path, &encoded, headers)
     }
 
     fn request(&self, path: &str, body: Option<&str>, mut headers: Headers) -> Prime<Response> {

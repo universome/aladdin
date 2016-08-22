@@ -7,10 +7,11 @@ authors = [
 ]
 
 [dependencies]
-chrono = "^0.2"
-hyper = "^0.9"
-kuchiki = {version = "^0.3", features = ["hyper"]}
-regex = "^0.1"
-lazy_static = "^0.2"
-url = "^1.2.0"
+chrono = "^0.2.25"
+hyper = "^0.9.10"
+kuchiki = {version = "^0.3.3", features = ["hyper"]}
+regex = "^0.1.73"
+lazy_static = "^0.2.1"
+url = "^1.2"
 mime = "^0.2.2"
+rustc-serialize = "^0.3.19"
