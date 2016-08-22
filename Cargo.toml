@@ -12,3 +12,5 @@ hyper = "^0.9"
 kuchiki = {version = "^0.3", features = ["hyper"]}
 regex = "^0.1"
 lazy_static = "^0.2"
+url = "^1.2.0"
+mime = "^0.2.2"
