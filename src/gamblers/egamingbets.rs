@@ -4,7 +4,7 @@ use base::Prime;
 use base::{NodeRefExt, ElementDataExt};
 use base::{Session, Currency};
 use gamblers::Gambler;
-use events::{Event, Kind, Odds, Dota2};
+use events::{Event, Outcome, Kind, Dota2};
 
 pub struct EGB {
     session: Session
@@ -46,7 +46,7 @@ impl Gambler for EGB {
         Ok(events)
     }
 
-    fn make_bet(&self, event: Event, outcome: u32, size: Currency) -> Prime<()> {
+    fn make_bet(&self, event: Event, outcome: Outcome, bet: Currency) -> Prime<()> {
         unimplemented!();
     }
 }
@@ -99,24 +99,22 @@ impl Into<Option<Event>> for Bet {
         let nick_1 = self.gamer_1.nick.replace(" (Live)", "");
         let nick_2 = self.gamer_2.nick.replace(" (Live)", "");
 
-        let odds = if let Ok(0.) = coef_draw {
-            Odds::Certain {
-                first: (nick_1, coef_1.unwrap()),
-                second: (nick_2, coef_2.unwrap())
-            }
-        } else {
-            Odds::Uncertain {
-                first: (nick_1, coef_1.unwrap()),
-                second: (nick_2, coef_2.unwrap()),
-                draw: coef_draw.unwrap()
-            }
-        };
+        let mut outcomes = vec![
+            Outcome(nick_1, coef_1.unwrap()),
+            Outcome(nick_2, coef_2.unwrap())
+        ];
+
+        let coef_draw = coef_draw.unwrap();
+
+        if coef_draw > 0. {
+            outcomes.push(Outcome("Draw".to_owned(), coef_draw));
+        }
 
         Some(Event {
             date: NaiveDateTime::from_timestamp(self.date as i64, 0),
             kind: kind,
-            odds: odds,
-            gamid: self.id as u64
+            outcomes: outcomes,
+            inner_id: self.id as u64
         })
     }
 }

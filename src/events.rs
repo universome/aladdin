@@ -4,26 +4,16 @@ use chrono::NaiveDateTime;
 pub struct Event {
     pub date: NaiveDateTime,
     pub kind: Kind,
-    pub odds: Odds,
-    pub gamid: u64
+    pub outcomes: Vec<Outcome>,
+    pub inner_id: u64
 }
+
+#[derive(Debug, PartialEq)]
+pub struct Outcome(pub String, pub f64);
 
 #[derive(Debug, PartialEq)]
 pub enum Kind {
     Dota2(Dota2)
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Odds {
-    Certain {
-        first: (String, f64),
-        second: (String, f64)
-    },
-    Uncertain {
-        first: (String, f64),
-        second: (String, f64),
-        draw: f64
-    }
 }
 
 #[derive(Debug, PartialEq)]
