@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::cell::RefCell;
 use url::form_urlencoded::Serializer;
 use hyper::client::{Client, Response};
@@ -6,7 +7,8 @@ use hyper::status::StatusCode;
 use kuchiki;
 use kuchiki::NodeRef;
 use kuchiki::traits::ParserExt;
-use rustc_serialize::json::Json;
+use rustc_serialize::json::{self, Json};
+use rustc_serialize::Decodable;
 
 use base::Prime;
 
@@ -44,7 +46,19 @@ impl Session {
         Ok(try!(kuchiki::parse_html().from_http(response)))
     }
 
-    pub fn get_json(&self, path: &str) -> Prime<Json> {
+    pub fn get_json<T: Decodable>(&self, path: &str) -> Prime<T> {
+        let mut headers = Headers::new();
+        headers.set(Accept(vec![qitem(mime!(Application/Json))]));
+
+        let mut response = try!(self.get(path, headers));
+        let mut payload = String::new();
+
+        try!(response.read_to_string(&mut payload));
+
+        Ok(try!(json::decode(&payload)))
+    }
+
+    pub fn get_raw_json(&self, path: &str) -> Prime<Json> {
         let mut headers = Headers::new();
         headers.set(Accept(vec![qitem(mime!(Application/Json))]));
 
