@@ -4,7 +4,7 @@ use base::Prime;
 use base::{NodeRefExt, ElementDataExt};
 use base::{Session, Currency};
 use gamblers::Gambler;
-use events::{Event, Game, Kind};
+use events::{Event, Kind, Odds, Dota2};
 
 pub struct EGB {
     session: Session
@@ -36,7 +36,7 @@ impl Gambler for EGB {
 
     fn check_balance(&self) -> Prime<Currency> {
         let balance = try!(self.session.get_json::<Balance>("/user/info?m=1&b=1"));
-        let money = try!(balance.bets.parse::<f32>());
+        let money = try!(balance.bets.parse::<f64>());
         Ok(Currency::from(money))
     }
 
@@ -82,8 +82,8 @@ impl Into<Option<Event>> for Bet {
             return None;
         }
 
-        let game = match self.game.as_ref() {
-            "Dota2" => Game::Dota2,
+        let kind = match self.game.as_ref() {
+            "Dota2" => Kind::Dota2(Dota2::Series),
             _ => return None
         };
 
@@ -96,16 +96,23 @@ impl Into<Option<Event>> for Bet {
             return None;
         }
 
-        let coef_draw_opt = if let Ok(0.) = coef_draw { None } else { Some(coef_draw.unwrap()) };
+        let odds = if let Ok(0.) = coef_draw {
+            Odds::Certain {
+                first: (self.gamer_1.nick, coef_1.unwrap()),
+                second: (self.gamer_2.nick, coef_2.unwrap())
+            }
+        } else {
+            Odds::Uncertain {
+                first: (self.gamer_1.nick, coef_1.unwrap()),
+                second: (self.gamer_2.nick, coef_2.unwrap()),
+                draw: coef_draw.unwrap()
+            }
+        };
 
         Some(Event {
             date: NaiveDateTime::from_timestamp(self.date as i64, 0),
-            game: game,
-            kind: Kind::OneVsOne {
-                team_one: (self.gamer_1.nick, coef_1.unwrap()),
-                team_two: (self.gamer_2.nick, coef_2.unwrap()),
-                draw: coef_draw_opt
-            },
+            kind: kind,
+            odds: odds,
             gamid: self.id as u64
         })
     }
