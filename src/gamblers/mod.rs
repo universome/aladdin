@@ -2,6 +2,10 @@ use base::Prime;
 use base::Currency;
 use events::Event;
 
+pub use self::egamingbets::EGB;
+
+mod egamingbets;
+
 pub trait Gambler {
     fn authorize(&self, username: &str, password: &str) -> Prime<()>;
     fn check_balance(&self) -> Prime<Currency>;

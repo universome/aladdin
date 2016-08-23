@@ -1,8 +1,8 @@
-use chrono::{DateTime, UTC};
+use chrono::NaiveDateTime;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Event {
-    pub date: DateTime<UTC>,
+    pub date: NaiveDateTime,
     pub game: Game,
     pub kind: Kind,
     pub gamid: u64
@@ -10,7 +10,7 @@ pub struct Event {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Game {
-    Dota
+    Dota2
 }
 
 #[derive(Clone, Debug, PartialEq)]
