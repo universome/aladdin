@@ -96,15 +96,18 @@ impl Into<Option<Event>> for Bet {
             return None;
         }
 
+        let nick_1 = self.gamer_1.nick.replace(" (Live)", "");
+        let nick_2 = self.gamer_2.nick.replace(" (Live)", "");
+
         let odds = if let Ok(0.) = coef_draw {
             Odds::Certain {
-                first: (self.gamer_1.nick, coef_1.unwrap()),
-                second: (self.gamer_2.nick, coef_2.unwrap())
+                first: (nick_1, coef_1.unwrap()),
+                second: (nick_2, coef_2.unwrap())
             }
         } else {
             Odds::Uncertain {
-                first: (self.gamer_1.nick, coef_1.unwrap()),
-                second: (self.gamer_2.nick, coef_2.unwrap()),
+                first: (nick_1, coef_1.unwrap()),
+                second: (nick_2, coef_2.unwrap()),
                 draw: coef_draw.unwrap()
             }
         };
