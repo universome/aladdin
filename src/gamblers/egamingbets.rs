@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use chrono::{NaiveDateTime, DateTime, UTC};
 
 use base::Prime;
 use base::{NodeRefExt, ElementDataExt};
@@ -111,7 +111,7 @@ impl Into<Option<Event>> for Bet {
         }
 
         Some(Event {
-            date: NaiveDateTime::from_timestamp(self.date as i64, 0),
+            date: DateTime::from_utc(NaiveDateTime::from_timestamp(self.date as i64, 0), UTC),
             kind: kind,
             outcomes: outcomes,
             inner_id: self.id as u64

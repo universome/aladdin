@@ -1,8 +1,8 @@
-use chrono::NaiveDateTime;
+use chrono::{DateTime, UTC};
 
 #[derive(Debug, PartialEq)]
 pub struct Event {
-    pub date: NaiveDateTime,
+    pub date: DateTime<UTC>,
     pub kind: Kind,
     pub outcomes: Vec<Outcome>,
     pub inner_id: u64
