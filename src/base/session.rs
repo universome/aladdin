@@ -8,7 +8,7 @@ use kuchiki;
 use kuchiki::NodeRef;
 use kuchiki::traits::ParserExt;
 use rustc_serialize::json::{self, Json};
-use rustc_serialize::Decodable;
+use rustc_serialize::{Decodable, Encodable};
 
 use base::Prime;
 
@@ -76,6 +76,16 @@ impl Session {
         headers.set(Accept(vec![qitem(mime!(Application/Json))]));
 
         self.post(path, &encoded, headers)
+    }
+
+    pub fn post_json<T: Encodable>(&self, path: &str, body: T) -> Prime<Response> {
+        let encoded_body = try!(json::encode(&body));
+        let mut headers = Headers::new();
+
+        headers.set(ContentType(mime!(Application/Json)));
+        headers.set(Accept(vec![qitem(mime!(Application/Json))]));
+
+        self.post(path, &encoded_body, headers)
     }
 
     fn request(&self, path: &str, body: Option<&str>, mut headers: Headers) -> Prime<Response> {
