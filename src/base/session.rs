@@ -1,5 +1,6 @@
+use std::time::Duration;
 use std::io::Read;
-use std::cell::RefCell;
+use std::sync::Mutex;
 use url::form_urlencoded::Serializer;
 use hyper::client::{Client, Response};
 use hyper::header::{Headers, SetCookie, Cookie, UserAgent, ContentLength, Accept, ContentType, qitem};
@@ -18,15 +19,19 @@ const USER_AGENT: &'static str = concat!("Mozilla/5.0 (Macintosh; Intel Mac OS X
 pub struct Session {
     client: Client,
     base_url: String,
-    cookie: RefCell<Cookie>
+    cookie: Mutex<Cookie>
 }
 
 impl Session {
     pub fn new(base_url: &str) -> Session {
+        let mut client = Client::new();
+        client.set_read_timeout(Some(Duration::from_secs(25)));
+        client.set_write_timeout(Some(Duration::from_secs(25)));
+
         Session {
-            client: Client::new(),
+            client: client,
             base_url: base_url.to_string(),
-            cookie: RefCell::new(Cookie(vec![]))
+            cookie: Mutex::new(Cookie(vec![]))
         }
     }
 
@@ -97,7 +102,9 @@ impl Session {
             None => self.client.get(&url)
         };
 
-        headers.set(self.cookie.borrow().clone());
+        let mut cookie = self.cookie.lock().unwrap();
+
+        headers.set(cookie.clone());
         headers.set(UserAgent(USER_AGENT.to_owned()));
 
         if let Some(body) = body {
@@ -113,7 +120,7 @@ impl Session {
         let cookies = response.headers.get::<SetCookie>()
             .map_or_else(Vec::new, |c| c.0.clone());
 
-        *self.cookie.borrow_mut() = Cookie(cookies);
+        *cookie = Cookie(cookies);
 
         Ok(response)
     }
