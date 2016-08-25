@@ -1,7 +1,7 @@
 use chrono::{DateTime, UTC};
 
 #[derive(Debug, PartialEq)]
-pub struct Event {
+pub struct Offer {
     pub date: DateTime<UTC>,
     pub kind: Kind,
     pub outcomes: Vec<Outcome>,
