@@ -39,7 +39,7 @@ impl Gambler for VitalBet {
 
     fn get_events(&self) -> Prime<Vec<Event>> {
         // TOOD(universome): we should get events from other sports too, not only Dota 2
-        let matches:Vec<Match> = self.session.get_json("/api/sportmatch/Get?categoryID=3693&sportID=2357").unwrap();
+        let matches:Vec<Match> = try!(self.session.get_json("/api/sportmatch/Get?categoryID=3693&sportID=2357"));
         let events = matches.into_iter().filter_map(Into::into).collect();
 
         Ok(events)
@@ -83,14 +83,19 @@ struct Odd {
 // TODO(universome): Add some error handling
 impl Into<Option<Event>> for Match {
     fn into(self) -> Option<Event> {
-        let outcomes = self.PreviewOdds.into_iter().filter_map(|odd| {
-            if !odd.IsSuspended { Some(Outcome(odd.Title, odd.Value)) } else { None }
-        }).collect();
+        let outcomes = self.PreviewOdds.into_iter()
+            .filter(|odd| !odd.IsSuspended)
+            .map(|odd| Outcome(odd.Title, odd.Value))
+            .collect();
 
-        let date = NaiveDateTime::parse_from_str(&self.DateOfMatch, "%Y-%m-%dT%H:%M:%S").unwrap();
+        let date = NaiveDateTime::parse_from_str(&self.DateOfMatch, "%Y-%m-%dT%H:%M:%S").ok();
+
+        if date.is_none() {
+            return None;
+        }
 
         Some(Event {
-            date: DateTime::from_utc(date, UTC),
+            date: DateTime::from_utc(date.unwrap(), UTC),
             kind: Kind::Dota2(Dota2::Series),
             outcomes: outcomes,
             inner_id: self.ID
