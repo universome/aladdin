@@ -3,8 +3,10 @@ use base::Currency;
 use events::{Event, Outcome};
 
 pub use self::egamingbets::EGB;
+pub use self::vitalbet::VitalBet;
 
 mod egamingbets;
+mod vitalbet;
 
 pub trait Gambler {
     fn authorize(&self, username: &str, password: &str) -> Prime<()>;
