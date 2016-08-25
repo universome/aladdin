@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 use chrono::{NaiveDateTime, DateTime, UTC};
 
 use base::Prime;
@@ -37,7 +39,7 @@ impl Gambler for VitalBet {
     }
 
     fn get_offers(&self) -> Prime<Vec<Offer>> {
-        // TOOD(universome): we should get offers from other sports too, not only Dota 2
+        // TODO(universome): we should get offers from other sports too, not only Dota 2
         let matches:Vec<Match> = try!(self.session.get_json("/api/sportmatch/Get?categoryID=3693&sportID=2357"));
         let offers = matches.into_iter().filter_map(Into::into).collect();
 
