@@ -4,7 +4,7 @@ use base::Prime;
 use base::{NodeRefExt, ElementDataExt};
 use base::{Session, Currency};
 use gamblers::Gambler;
-use events::{Offer, Outcome, Kind, Dota2};
+use events::{Offer, Outcome, DRAW, Kind, Dota2};
 
 pub struct EGB {
     session: Session
@@ -107,7 +107,7 @@ impl Into<Option<Offer>> for Bet {
         let coef_draw = coef_draw.unwrap();
 
         if coef_draw > 0. {
-            outcomes.push(Outcome("Draw".to_owned(), coef_draw));
+            outcomes.push(Outcome(DRAW.to_owned(), coef_draw));
         }
 
         Some(Offer {
