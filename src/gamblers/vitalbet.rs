@@ -33,7 +33,7 @@ impl Gambler for VitalBet {
     fn check_balance(&self) -> Prime<Currency> {
         let balance = try!(self.session.get_json::<Balance>("/api/account"));
         let money = balance.Balance;
-        
+
         Ok(Currency::from(money))
     }
 
@@ -41,7 +41,7 @@ impl Gambler for VitalBet {
         // TOOD(universome): we should get events from other sports too, not only Dota 2
         let matches:Vec<Match> = self.session.get_json("/api/sportmatch/Get?categoryID=3693&sportID=2357").unwrap();
         let events = matches.into_iter().filter_map(Into::into).collect();
-        
+
         Ok(events)
     }
 
@@ -69,27 +69,24 @@ struct Matches(Vec<Match>);
 #[derive(RustcDecodable)]
 struct Match {
     ID: u64,
-    // HomeTeamName: String,
-    // AwayTeamName: String,
     DateOfMatch: String,
     PreviewOdds: Vec<Odd>
 }
 
 #[derive(RustcDecodable)]
 struct Odd {
-    // isLive: bool,
+    IsSuspended: bool,
     Value: f64,
-    Title: String,
-    // IsSuspended: bool,
-    // IsVisible: bool,
-    // Status: i32,
-    // IsFeedSuspended: bool
+    Title: String
 }
 
 // TODO(universome): Add some error handling
 impl Into<Option<Event>> for Match {
     fn into(self) -> Option<Event> {
-        let outcomes = self.PreviewOdds.into_iter().map(|odd| { Outcome(odd.Title, odd.Value) }).collect();
+        let outcomes = self.PreviewOdds.into_iter().filter_map(|odd| {
+            if !odd.IsSuspended { Some(Outcome(odd.Title, odd.Value)) } else { None }
+        }).collect();
+
         let date = NaiveDateTime::parse_from_str(&self.DateOfMatch, "%Y-%m-%dT%H:%M:%S").unwrap();
 
         Some(Event {
