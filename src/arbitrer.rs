@@ -27,7 +27,7 @@ pub fn run() {
         realize_events(&gamblers, &events);
 
         let delay = clamp(min_delay, find_delay(&events), max_delay);
-        println!("Sleep for {}m", delay.num_minutes());
+        println!("[Sleep for {}m]", delay.num_minutes());
         thread::sleep(delay.to_std().unwrap());
     }
 }
@@ -133,11 +133,22 @@ fn group_offers(queue: &MsQueue<Option<MarkedOffer>>, mut count: usize) -> HashM
 }
 
 fn realize_events(gamblers: &[GamblerInfo], events: &[Event]) {
-    for (i, event) in events.iter().enumerate() {
-        println!("[#{}] {}, {:?}:", i, event[0].1.date, event[0].1.kind);
+    for event in events.iter() {
+        println!("{}, {:?}:", event[0].1.date.date().naive_utc(), event[0].1.kind);
 
-        for offer in event {
-            println!("  {}: {:?}", gamblers[offer.0].host, offer.1.outcomes);
+        for &MarkedOffer(gid, ref offer) in event {
+            let host = &gamblers[gid].host;
+            print!("    {:20} {}", host, offer.date.time());
+
+            for outcome in &offer.outcomes {
+                print!(" {:15}", outcome.0);
+            }
+
+            for outcome in &offer.outcomes {
+                print!(" {:.2}", outcome.1);
+            }
+
+            print!("\n");
         }
 
         let outcomes = event.into_iter().map(|o| o.1.outcomes.as_slice());
@@ -146,6 +157,8 @@ fn realize_events(gamblers: &[GamblerInfo], events: &[Event]) {
         if let Some(opp) = opp {
             println!("  There is an opportunity: {:?}", opp);
         }
+
+        print!("\n");
     }
 }
 

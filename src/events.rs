@@ -1,6 +1,6 @@
 use std::cmp::{PartialEq, Eq};
 use std::hash::{Hash, Hasher};
-use chrono::{DateTime, UTC};
+use chrono::{DateTime, UTC, TimeZone};
 
 #[derive(Debug, Clone)]
 pub struct Offer {
@@ -25,7 +25,11 @@ pub enum Dota2 { Series, Map(u32), FirstBlood(u32), First10Kills(u32) }
 
 impl PartialEq for Offer {
     fn eq(&self, other: &Offer) -> bool {
-        if self.date != other.date || self.kind != other.kind {
+        if round_ts(self.date.timestamp()) != round_ts(other.date.timestamp()) {
+            return false;
+        }
+
+        if self.kind != other.kind {
             return false;
         }
 
@@ -48,7 +52,7 @@ impl Eq for Offer {}
 
 impl Hash for Offer {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.date.hash(state);
+        round_ts(self.date.timestamp()).hash(state);
         self.kind.hash(state);
     }
 }
@@ -66,6 +70,10 @@ fn fuzzy_eq(lhs: &str, rhs: &str) -> bool {
     true
 }
 
+fn round_ts(ts: i64) -> i64 {
+    ts / (30 * 60) * (30 * 60)
+}
+
 #[test]
 fn test_fuzzy_eq() {
     assert!(fuzzy_eq("rb", "rb"));
@@ -74,4 +82,18 @@ fn test_fuzzy_eq() {
     assert!(fuzzy_eq("r.b", "rb"));
     assert!(fuzzy_eq(" r.b", "rb"));
     assert!(fuzzy_eq(" R.8B ", "rb"));
+}
+
+#[test]
+fn test_round_ts() {
+    fn assert_ts(inp_h: u32, inp_m: u32, exp_h: u32, exp_m: u32) {
+        assert_eq!(round_ts(UTC.ymd(2016, 8, 26).and_hms(inp_h, inp_m, 0).timestamp()),
+                   UTC.ymd(2016, 8, 26).and_hms(exp_h, exp_m, 0).timestamp());
+    }
+
+    assert_ts(12, 0, 12, 0);
+    assert_ts(12, 29, 12, 0);
+    assert_ts(12, 30, 12, 30);
+    assert_ts(12, 31, 12, 30);
+    assert_ts(12, 59, 12, 30);
 }
