@@ -12,7 +12,7 @@ pub trait Gambler {
     fn authorize(&self, username: &str, password: &str) -> Prime<()>;
     fn check_balance(&self) -> Prime<Currency>;
     fn fetch_offers(&self) -> Prime<Vec<Offer>>;
-    fn make_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Prime<()>;
+    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Prime<()>;
 
     fn reset_cache(&self) {}
 }

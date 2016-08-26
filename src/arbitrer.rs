@@ -144,7 +144,7 @@ fn realize_events(gamblers: &[GamblerInfo], events: &[Event]) {
         let opp = opportunity::find_best(outcomes, Strategy::Unbiased);
 
         if let Some(opp) = opp {
-            println!("  There is opportunity: {:?}", opp);
+            println!("  There is an opportunity: {:?}", opp);
         }
     }
 }

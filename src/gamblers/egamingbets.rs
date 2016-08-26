@@ -46,7 +46,7 @@ impl Gambler for EGB {
         Ok(offers)
     }
 
-    fn make_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Prime<()> {
+    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Prime<()> {
         unimplemented!();
     }
 }

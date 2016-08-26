@@ -29,7 +29,7 @@ impl PartialEq for Offer {
             return false;
         }
 
-        // Search at least one match (except draw of cause).
+        // Search at least one match (except draw of course).
         for fst in &self.outcomes {
             if fst.0 == DRAW { continue; }
 
