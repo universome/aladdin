@@ -1,10 +1,11 @@
+#![allow(non_snake_case)]
+
 use chrono::{NaiveDateTime, DateTime, UTC};
-use rustc_serialize::json;
 
 use base::Prime;
 use base::{Session, Currency};
 use gamblers::Gambler;
-use events::{Event, Outcome, Kind, Dota2};
+use events::{Offer, Outcome, Kind, Dota2};
 
 pub struct VitalBet {
     session: Session
@@ -37,15 +38,15 @@ impl Gambler for VitalBet {
         Ok(Currency::from(money))
     }
 
-    fn get_events(&self) -> Prime<Vec<Event>> {
-        // TOOD(universome): we should get events from other sports too, not only Dota 2
+    fn fetch_offers(&self) -> Prime<Vec<Offer>> {
+        // TODO(universome): we should get offers from other sports too, not only Dota 2
         let matches:Vec<Match> = try!(self.session.get_json("/api/sportmatch/Get?categoryID=3693&sportID=2357"));
-        let events = matches.into_iter().filter_map(Into::into).collect();
+        let offers = matches.into_iter().filter_map(Into::into).collect();
 
-        Ok(events)
+        Ok(offers)
     }
 
-    fn make_bet(&self, event: Event, outcome: Outcome, bet: Currency) -> Prime<()> {
+    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Prime<()> {
         unimplemented!();
     }
 }
@@ -81,8 +82,8 @@ struct Odd {
 }
 
 // TODO(universome): Add some error handling
-impl Into<Option<Event>> for Match {
-    fn into(self) -> Option<Event> {
+impl Into<Option<Offer>> for Match {
+    fn into(self) -> Option<Offer> {
         let outcomes = self.PreviewOdds.into_iter()
             .filter(|odd| !odd.IsSuspended)
             .map(|odd| Outcome(odd.Title, odd.Value))
@@ -94,7 +95,7 @@ impl Into<Option<Event>> for Match {
             return None;
         }
 
-        Some(Event {
+        Some(Offer {
             date: DateTime::from_utc(date.unwrap(), UTC),
             kind: Kind::Dota2(Dota2::Series),
             outcomes: outcomes,

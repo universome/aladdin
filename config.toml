@@ -1,0 +1,13 @@
+[arbitrer]
+min-delay = 2
+max-delay = 60
+
+[[gamblers]]
+host = "egamingbets.com"
+username = "shmaladdin"
+password = "aladdin"
+
+[[gamblers]]
+host = "vitalbet.com"
+username = "Алладин"
+password = "aladdin"

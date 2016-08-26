@@ -4,7 +4,7 @@ use base::Prime;
 use base::{NodeRefExt, ElementDataExt};
 use base::{Session, Currency};
 use gamblers::Gambler;
-use events::{Event, Outcome, Kind, Dota2};
+use events::{Offer, Outcome, DRAW, Kind, Dota2};
 
 pub struct EGB {
     session: Session
@@ -40,13 +40,13 @@ impl Gambler for EGB {
         Ok(Currency::from(money))
     }
 
-    fn get_events(&self) -> Prime<Vec<Event>> {
+    fn fetch_offers(&self) -> Prime<Vec<Offer>> {
         let table = try!(self.session.get_json::<Table>("/bets?st=0&ut=0&f="));
-        let events = table.bets.into_iter().filter_map(Into::into).collect();
-        Ok(events)
+        let offers = table.bets.into_iter().filter_map(Into::into).collect();
+        Ok(offers)
     }
 
-    fn make_bet(&self, event: Event, outcome: Outcome, bet: Currency) -> Prime<()> {
+    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Prime<()> {
         unimplemented!();
     }
 }
@@ -75,8 +75,8 @@ struct Bet {
     winner: i32
 }
 
-impl Into<Option<Event>> for Bet {
-    fn into(self) -> Option<Event> {
+impl Into<Option<Offer>> for Bet {
+    fn into(self) -> Option<Offer> {
         // Irrelevant by date.
         if self.winner > 0 {
             return None;
@@ -107,10 +107,10 @@ impl Into<Option<Event>> for Bet {
         let coef_draw = coef_draw.unwrap();
 
         if coef_draw > 0. {
-            outcomes.push(Outcome("Draw".to_owned(), coef_draw));
+            outcomes.push(Outcome(DRAW.to_owned(), coef_draw));
         }
 
-        Some(Event {
+        Some(Offer {
             date: DateTime::from_utc(NaiveDateTime::from_timestamp(self.date as i64, 0), UTC),
             kind: kind,
             outcomes: outcomes,
