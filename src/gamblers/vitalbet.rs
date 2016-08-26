@@ -38,7 +38,7 @@ impl Gambler for VitalBet {
         Ok(Currency::from(money))
     }
 
-    fn get_offers(&self) -> Prime<Vec<Offer>> {
+    fn fetch_offers(&self) -> Prime<Vec<Offer>> {
         // TODO(universome): we should get offers from other sports too, not only Dota 2
         let matches:Vec<Match> = try!(self.session.get_json("/api/sportmatch/Get?categoryID=3693&sportID=2357"));
         let offers = matches.into_iter().filter_map(Into::into).collect();

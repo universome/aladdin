@@ -40,7 +40,7 @@ impl Gambler for EGB {
         Ok(Currency::from(money))
     }
 
-    fn get_offers(&self) -> Prime<Vec<Offer>> {
+    fn fetch_offers(&self) -> Prime<Vec<Offer>> {
         let table = try!(self.session.get_json::<Table>("/bets?st=0&ut=0&f="));
         let offers = table.bets.into_iter().filter_map(Into::into).collect();
         Ok(offers)

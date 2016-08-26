@@ -2,7 +2,7 @@ use std::cmp::{PartialEq, Eq};
 use std::hash::{Hash, Hasher};
 use chrono::{DateTime, UTC};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Offer {
     pub date: DateTime<UTC>,
     pub kind: Kind,
@@ -10,17 +10,17 @@ pub struct Offer {
     pub inner_id: u64
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Outcome(pub String, pub f64);
 
 pub static DRAW: &'static str = "(draw)";
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Kind {
     Dota2(Dota2)
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Dota2 { Series, Map(u32), FirstBlood(u32), First10Kills(u32) }
 
 impl PartialEq for Offer {
