@@ -117,10 +117,9 @@ impl Session {
             return Err(From::from(format!("Bad status: {}", response.status)));
         }
 
-        let cookies = response.headers.get::<SetCookie>()
-            .map_or_else(Vec::new, |c| c.0.clone());
-
-        *cookie = Cookie(cookies);
+        if let Some(cookies) = response.headers.get::<SetCookie>() {
+            *cookie = Cookie(cookies.0.clone());
+        }
 
         Ok(response)
     }

@@ -2,9 +2,6 @@ use base::Prime;
 use base::Currency;
 use events::{Offer, Outcome};
 
-pub use self::egamingbets::EGB;
-pub use self::vitalbet::VitalBet;
-
 mod egamingbets;
 mod vitalbet;
 
