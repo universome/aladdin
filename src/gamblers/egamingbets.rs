@@ -1,8 +1,12 @@
+use std::time::Duration;
+use std::thread;
 use chrono::{NaiveDateTime, DateTime, UTC};
 
-use base::Prime;
-use base::{NodeRefExt, ElementDataExt};
-use base::{Session, Currency};
+use base::error::Result;
+use base::timers::Periodic;
+use base::parsing::{NodeRefExt, ElementDataExt};
+use base::session::Session;
+use base::currency::Currency;
 use gamblers::Gambler;
 use events::{Offer, Outcome, DRAW, Kind, Dota2};
 
@@ -19,34 +23,43 @@ impl EGB {
 }
 
 impl Gambler for EGB {
-    fn authorize(&self, username: &str, password: &str) -> Prime<()> {
+    fn authorize(&self, username: &str, password: &str) -> Result<()> {
         let html = try!(self.session.get_html("/"));
 
         let csrf_elem = try!(html.query(r#"meta[name="csrf-token"]"#));
         let csrf = try!(csrf_elem.get_attr("content"));
 
-        self.session.post_form("/users/sign_in", &[
-            ("utf8", "✓"),
-            ("authenticity_token", &csrf),
-            ("user[name]", username),
-            ("user[password]", password),
-            ("user[remember_me]", "1")
-        ]).map(|_| ())
+        self.session
+            .post_form("/users/sign_in", &[
+                ("utf8", "✓"),
+                ("authenticity_token", &csrf),
+                ("user[name]", username),
+                ("user[password]", password),
+                ("user[remember_me]", "1")
+            ])
+            .map(|_| ())
     }
 
-    fn check_balance(&self) -> Prime<Currency> {
+    fn check_balance(&self) -> Result<Currency> {
         let balance = try!(self.session.get_json::<Balance>("/user/info?m=1&b=1"));
         let money = try!(balance.bets.parse::<f64>());
+
         Ok(Currency::from(money))
     }
 
-    fn fetch_offers(&self) -> Prime<Vec<Offer>> {
+    fn watch(&self, cb: &Fn(Offer)) -> Result<()> {
         let table = try!(self.session.get_json::<Table>("/bets?st=0&ut=0&f="));
-        let offers = table.bets.into_iter().filter_map(Into::into).collect();
-        Ok(offers)
+
+        for bet in table.bets {
+            if let Some(offer) = try!(bet.into()) {
+                cb(offer);
+            }
+        }
+
+        Ok(())
     }
 
-    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Prime<()> {
+    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Result<()> {
         unimplemented!();
     }
 }
@@ -75,51 +88,44 @@ struct Bet {
     winner: i32
 }
 
-impl Into<Option<Offer>> for Bet {
-    fn into(self) -> Option<Offer> {
+#[derive(RustcDecodable)]
+struct Gamer {
+    nick: String
+}
+
+impl Into<Result<Option<Offer>>> for Bet {
+    fn into(self) -> Result<Option<Offer>> {
         // Irrelevant by date.
         if self.winner > 0 {
-            return None;
+            return Ok(None);
         }
 
         let kind = match self.game.as_ref() {
             "Dota2" => Kind::Dota2(Dota2::Series),
-            _ => return None
+            _ => return Ok(None)
         };
 
-        let coef_1 = self.coef_1.parse();
-        let coef_2 = self.coef_2.parse();
-        let coef_draw = if self.coef_draw == "" { Ok(0.) } else { self.coef_draw.parse() };
-
-        // TODO(loyd): improve error handling.
-        if coef_1.is_err() || coef_2.is_err() || coef_draw.is_err() {
-            return None;
-        }
+        let coef_1 = try!(self.coef_1.parse());
+        let coef_2 = try!(self.coef_2.parse());
+        let coef_draw = if self.coef_draw == "" { 0. } else { try!(self.coef_draw.parse()) };
 
         let nick_1 = self.gamer_1.nick.replace(" (Live)", "");
         let nick_2 = self.gamer_2.nick.replace(" (Live)", "");
 
         let mut outcomes = vec![
-            Outcome(nick_1, coef_1.unwrap()),
-            Outcome(nick_2, coef_2.unwrap())
+            Outcome(nick_1, coef_1),
+            Outcome(nick_2, coef_2)
         ];
-
-        let coef_draw = coef_draw.unwrap();
 
         if coef_draw > 0. {
             outcomes.push(Outcome(DRAW.to_owned(), coef_draw));
         }
 
-        Some(Offer {
+        Ok(Some(Offer {
             date: DateTime::from_utc(NaiveDateTime::from_timestamp(self.date as i64, 0), UTC),
             kind: kind,
             outcomes: outcomes,
             inner_id: self.id as u64
-        })
+        }))
     }
-}
-
-#[derive(RustcDecodable)]
-struct Gamer {
-    nick: String
 }
