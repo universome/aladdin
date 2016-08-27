@@ -40,7 +40,8 @@ impl Gambler for VitalBet {
         Ok(Currency::from(money))
     }
 
-    fn watch(&self, cb: &Fn(Offer)) -> Result<()> {
+    fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+        // TODO(universome): removing offers.
         // TODO(universome): optimize this.
         for _ in Periodic::new(40) {
             // TODO(universome): we should get offers from other sports too, not only Dota 2.
@@ -49,7 +50,7 @@ impl Gambler for VitalBet {
 
             for match_ in matches {
                 if let Some(offer) = try!(match_.into()) {
-                    cb(offer)
+                    cb(offer, true)
                 }
             }
         }

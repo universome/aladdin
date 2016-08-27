@@ -45,14 +45,15 @@ impl Gambler for EGB {
         Ok(Currency::from(money))
     }
 
-    fn watch(&self, cb: &Fn(Offer)) -> Result<()> {
+    fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+        // TODO(loyd): removing offers.
         // TODO(loyd): optimize this.
         for _ in Periodic::new(40) {
             let table = try!(self.session.get_json::<Table>("/bets?st=0&ut=0&f="));
 
             for bet in table.bets {
                 if let Some(offer) = try!(bet.into()) {
-                    cb(offer);
+                    cb(offer, true);
                 }
             }
         }
