@@ -4,7 +4,6 @@ use std::sync::Mutex;
 use url::form_urlencoded::Serializer;
 use hyper::client::{Client, Response};
 use hyper::header::{Headers, SetCookie, Cookie, UserAgent, ContentLength, Accept, ContentType, qitem};
-use hyper::status::StatusCode;
 use kuchiki;
 use kuchiki::NodeRef;
 use kuchiki::traits::ParserExt;

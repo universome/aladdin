@@ -1,6 +1,6 @@
 use std::cmp::{PartialEq, Eq};
 use std::hash::{Hash, Hasher};
-use chrono::{DateTime, UTC, TimeZone};
+use chrono::{DateTime, UTC};
 
 #[derive(Debug, Clone)]
 pub struct Offer {

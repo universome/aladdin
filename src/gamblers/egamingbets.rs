@@ -1,5 +1,3 @@
-use std::time::Duration;
-use std::thread;
 use chrono::{NaiveDateTime, DateTime, UTC};
 
 use base::error::Result;
@@ -48,16 +46,15 @@ impl Gambler for EGB {
     }
 
     fn watch(&self, cb: &Fn(Offer)) -> Result<()> {
-        let table = try!(self.session.get_json::<Table>("/bets?st=0&ut=0&f="));
+        // TODO(loyd): optimize this.
+        for _ in Periodic::new(40) {
+            let table = try!(self.session.get_json::<Table>("/bets?st=0&ut=0&f="));
 
-        for bet in table.bets {
-            if let Some(offer) = try!(bet.into()) {
-                cb(offer);
+            for bet in table.bets {
+                if let Some(offer) = try!(bet.into()) {
+                    cb(offer);
+                }
             }
-        }
-
-        for _ in Periodic::new(20) {
-            println!(">>>> request");
         }
 
         Ok(())

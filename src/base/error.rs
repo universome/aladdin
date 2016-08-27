@@ -11,7 +11,7 @@ use rustc_serialize::json::{DecoderError, EncoderError, ParserError};
 
 use self::Error::*;
 
-type BoxedError = Box<StdError + Send + Sync>;
+pub type BoxedError = Box<StdError + Send + Sync>;
 
 pub type Result<T> = StdResult<T, Error>;
 
