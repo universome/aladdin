@@ -56,6 +56,10 @@ impl Gambler for EGB {
             }
         }
 
+        for _ in Periodic::new(20) {
+            println!(">>>> request");
+        }
+
         Ok(())
     }
 
