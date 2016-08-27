@@ -2,8 +2,10 @@
 
 use chrono::{NaiveDateTime, DateTime, UTC};
 
-use base::Prime;
-use base::{Session, Currency};
+use base::error::Result;
+use base::timers::Periodic;
+use base::session::Session;
+use base::currency::Currency;
 use gamblers::Gambler;
 use events::{Offer, Outcome, Kind, Dota2};
 
@@ -20,7 +22,7 @@ impl VitalBet {
 }
 
 impl Gambler for VitalBet {
-    fn authorize(&self, username: &str, password: &str) -> Prime<()> {
+    fn authorize(&self, username: &str, password: &str) -> Result<()> {
         let body = VitalBetAuthData {
             BrowserFingerPrint: 426682306,
             Login: username,
@@ -31,22 +33,31 @@ impl Gambler for VitalBet {
         self.session.post_json("/api/authorization/post", body).map(|_| ())
     }
 
-    fn check_balance(&self) -> Prime<Currency> {
+    fn check_balance(&self) -> Result<Currency> {
         let balance = try!(self.session.get_json::<Balance>("/api/account"));
         let money = balance.Balance;
 
         Ok(Currency::from(money))
     }
 
-    fn fetch_offers(&self) -> Prime<Vec<Offer>> {
-        // TODO(universome): we should get offers from other sports too, not only Dota 2
-        let matches:Vec<Match> = try!(self.session.get_json("/api/sportmatch/Get?categoryID=3693&sportID=2357"));
-        let offers = matches.into_iter().filter_map(Into::into).collect();
+    fn watch(&self, cb: &Fn(Offer)) -> Result<()> {
+        // TODO(universome): optimize this.
+        for _ in Periodic::new(40) {
+            // TODO(universome): we should get offers from other sports too, not only Dota 2.
+            let path = "/api/sportmatch/Get?categoryID=3693&sportID=2357";
+            let matches = try!(self.session.get_json::<Vec<Match>>(path));
 
-        Ok(offers)
+            for match_ in matches {
+                if let Some(offer) = try!(match_.into()) {
+                    cb(offer)
+                }
+            }
+        }
+
+        Ok(())
     }
 
-    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Prime<()> {
+    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Result<()> {
         unimplemented!();
     }
 }
@@ -65,9 +76,6 @@ struct Balance {
 }
 
 #[derive(RustcDecodable)]
-struct Matches(Vec<Match>);
-
-#[derive(RustcDecodable)]
 struct Match {
     ID: u64,
     DateOfMatch: String,
@@ -81,25 +89,20 @@ struct Odd {
     Title: String
 }
 
-// TODO(universome): Add some error handling
-impl Into<Option<Offer>> for Match {
-    fn into(self) -> Option<Offer> {
+impl Into<Result<Option<Offer>>> for Match {
+    fn into(self) -> Result<Option<Offer>> {
         let outcomes = self.PreviewOdds.into_iter()
             .filter(|odd| !odd.IsSuspended)
             .map(|odd| Outcome(odd.Title, odd.Value))
             .collect();
 
-        let date = NaiveDateTime::parse_from_str(&self.DateOfMatch, "%Y-%m-%dT%H:%M:%S").ok();
+        let date = try!(NaiveDateTime::parse_from_str(&self.DateOfMatch, "%Y-%m-%dT%H:%M:%S"));
 
-        if date.is_none() {
-            return None;
-        }
-
-        Some(Offer {
-            date: DateTime::from_utc(date.unwrap(), UTC),
+        Ok(Some(Offer {
+            date: DateTime::from_utc(date, UTC),
             kind: Kind::Dota2(Dota2::Series),
             outcomes: outcomes,
             inner_id: self.ID
-        })
+        }))
     }
 }
