@@ -1,13 +1,17 @@
-use std::fmt;
 use std::convert::From;
+use std::fmt::{Display, Formatter};
+use std::fmt::Result as FmtResult;
 use std::error::Error as StdError;
 use std::result::Result as StdResult;
 use std::io::Error as IoError;
 use std::num::{ParseIntError, ParseFloatError};
 use std::str::ParseBoolError;
 use hyper::Error as HyperError;
+use chrono::ParseError as ChronoParseError;
+use rustc_serialize::json::DecoderError as JsonDecoderError;
+use rustc_serialize::json::EncoderError as JsonEncoderError;
+use rustc_serialize::json::ParserError as JsonParserError;
 use hyper::status::StatusCode;
-use rustc_serialize::json::{DecoderError, EncoderError, ParserError};
 
 use self::Error::*;
 
@@ -22,8 +26,8 @@ pub enum Error {
     Unexpected(BoxedError)
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         match *self {
             Network(ref e) => e.fmt(f),
             Status(ref e) => e.fmt(f),
@@ -48,10 +52,10 @@ impl From<StatusCode> for Error {
     }
 }
 
-impl From<ParserError> for Error {
-    fn from(err: ParserError) -> Error {
+impl From<JsonParserError> for Error {
+    fn from(err: JsonParserError) -> Error {
         match err {
-            ParserError::IoError(err) => Network(From::from(err)),
+            JsonParserError::IoError(err) => Network(From::from(err)),
             err => Unexpected(From::from(err))
         }
     }
@@ -79,6 +83,7 @@ impl_boxed!(Network, IoError);
 impl_boxed!(Unexpected, ParseIntError);
 impl_boxed!(Unexpected, ParseFloatError);
 impl_boxed!(Unexpected, ParseBoolError);
-impl_boxed!(Unexpected, DecoderError);
-impl_boxed!(Unexpected, EncoderError);
+impl_boxed!(Unexpected, JsonDecoderError);
+impl_boxed!(Unexpected, JsonEncoderError);
+impl_boxed!(Unexpected, ChronoParseError);
 impl_boxed!(Unexpected, String);
