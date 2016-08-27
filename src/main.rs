@@ -19,5 +19,6 @@ mod opportunity;
 mod arbitrer;
 
 fn main() {
+    // TODO(loyd): make CLI.
     arbitrer::run();
 }
