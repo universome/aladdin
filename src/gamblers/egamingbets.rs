@@ -1,3 +1,5 @@
+use time;
+
 use base::error::Result;
 use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
@@ -96,7 +98,7 @@ struct Gamer {
 impl Into<Result<Option<Offer>>> for Bet {
     fn into(self) -> Result<Option<Offer>> {
         // Irrelevant by date.
-        if self.winner > 0 {
+        if self.winner > 0 || time::get_time().sec as u32 >= self.date {
             return Ok(None);
         }
 
