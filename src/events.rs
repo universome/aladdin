@@ -27,10 +27,12 @@ pub enum Dota2 { Series, Map(u32), FirstBlood(u32), First10Kills(u32) }
 impl Display for Offer {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         let tm = time::at_utc(time::Timespec::new(self.date as i64, 0)).to_local();
-        write!(f, "{} {:?} #{} (", tm.strftime("%d/%m %R").unwrap(), self.kind, self.inner_id);
+        let date = tm.strftime("%d/%m %R").unwrap();
+
+        try!(write!(f, "{} {:?} #{} (", date, self.kind, self.inner_id));
 
         for (idx, outcome) in self.outcomes.iter().enumerate() {
-            write!(f, "{}{}", if idx > 0 { "|" } else { "" }, outcome.0);
+            try!(write!(f, "{}{}", if idx > 0 { "|" } else { "" }, outcome.0));
         }
 
         write!(f, ")")
@@ -99,7 +101,7 @@ fn test_fuzzy_eq() {
 }
 
 #[test]
-fn test_round_ts() {
+fn test_round_date() {
     fn to_unix(time: &str) -> u32 {
         let date = "2016-08-28 ".to_owned() + time;
         time::strptime(&date, "%F %H:%M").unwrap().to_timespec().sec as u32

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
+use std::sync::mpsc::{self, Sender, Receiver};
 use crossbeam;
-use crossbeam::sync::MsQueue;
 
 use base::config::CONFIG;
 use events::Offer;
@@ -19,15 +19,19 @@ type Event<'a> = Vec<MarkedOffer<'a>>;
 
 pub fn run() {
     let bookies = init_bookies();
-    let incoming = &MsQueue::new();
-    let outgoing = &MsQueue::new();
+
+    let (incoming_tx, incoming_rx) = mpsc::channel();
+    let (outgoing_tx, outgoing_rx) = mpsc::channel();
 
     crossbeam::scope(|scope| {
         for bookie in &bookies {
-            scope.spawn(move || run_gambler(&bookie, &incoming, &outgoing));
+            let incoming_tx = incoming_tx.clone();
+            let outgoing_tx = outgoing_tx.clone();
+
+            scope.spawn(move || run_gambler(bookie, incoming_tx, outgoing_tx));
         }
 
-        process_queues(&incoming, &outgoing);
+        process_channels(incoming_rx, outgoing_rx);
     });
 }
 
@@ -58,8 +62,8 @@ fn init_bookies() -> Vec<Bookie> {
 }
 
 fn run_gambler<'a>(bookie: &'a Bookie,
-                   incoming: &MsQueue<MarkedOffer<'a>>,
-                   outgoing: &MsQueue<MarkedOffer<'a>>)
+                   incoming: Sender<MarkedOffer<'a>>,
+                   outgoing: Sender<MarkedOffer<'a>>)
 {
     // TODO(loyd): add error handling (don't forget about catching panics!).
     if let Err(error) = bookie.gambler.authorize(&bookie.username, &bookie.password) {
@@ -69,21 +73,26 @@ fn run_gambler<'a>(bookie: &'a Bookie,
 
     let error = bookie.gambler.watch(&|offer, update| {
         let marked = MarkedOffer(bookie, offer);
-        if update { incoming.push(marked); } else { outgoing.push(marked); }
+
+        if update {
+            incoming.send(marked).unwrap();
+        } else {
+            outgoing.send(marked).unwrap();
+        }
     }).unwrap_err();
 
     error!("{}: {}", bookie.host, error);
 }
 
-fn process_queues(incoming: &MsQueue<MarkedOffer>, outgoing: &MsQueue<MarkedOffer>) {
+fn process_channels(incoming: Receiver<MarkedOffer>, outgoing: Receiver<MarkedOffer>) {
     let mut events = HashMap::new();
 
     loop {
-        let marked = incoming.pop();
+        let marked = incoming.recv().unwrap();
         let key = marked.1.clone();
         update_offer(&mut events, marked);
 
-        while let Some(marked) = outgoing.try_pop() {
+        while let Ok(marked) = outgoing.try_recv() {
             remove_offer(&mut events, marked);
         }
 
