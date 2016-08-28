@@ -1,40 +1,43 @@
 use std::collections::HashMap;
-use std::cmp;
-use std::thread;
-use chrono::{UTC, Duration};
+use std::sync::mpsc::{self, Sender, Receiver};
 use crossbeam;
-use crossbeam::sync::MsQueue;
 
-use base::CONFIG;
+use base::config::CONFIG;
 use events::Offer;
 use gamblers::{self, Gambler};
 use opportunity::{self, Strategy};
 
-struct GamblerInfo {
+struct Bookie {
     host: String,
+    username: String,
+    password: String,
     gambler: Box<Gambler + Sync>
 }
 
-struct MarkedOffer(usize, Offer);
-type Event = Vec<MarkedOffer>;
+struct MarkedOffer<'a>(&'a Bookie, Offer);
+type Event<'a> = Vec<MarkedOffer<'a>>;
 
 pub fn run() {
-    let gamblers = init_gamblers();
-    let (min_delay, max_delay) = get_delay_window();
+    let bookies = init_bookies();
 
-    loop {
-        let events = fetch_events(&gamblers);
-        realize_events(&gamblers, &events);
+    let (incoming_tx, incoming_rx) = mpsc::channel();
+    let (outgoing_tx, outgoing_rx) = mpsc::channel();
 
-        let delay = clamp(min_delay, find_delay(&events), max_delay);
-        println!("Sleep for {}m", delay.num_minutes());
-        thread::sleep(delay.to_std().unwrap());
-    }
+    crossbeam::scope(|scope| {
+        for bookie in &bookies {
+            let incoming_tx = incoming_tx.clone();
+            let outgoing_tx = outgoing_tx.clone();
+
+            scope.spawn(move || run_gambler(bookie, incoming_tx, outgoing_tx));
+        }
+
+        process_channels(incoming_rx, outgoing_rx);
+    });
 }
 
-fn init_gamblers() -> Vec<GamblerInfo> {
-    let mut info = vec![];
-    let array = CONFIG.lookup("gamblers").unwrap().as_slice().unwrap();
+fn init_bookies() -> Vec<Bookie> {
+    let mut bookies = vec![];
+    let array = CONFIG.lookup("bookies").unwrap().as_slice().unwrap();
 
     for item in array {
         let enabled = item.lookup("enabled").map_or(true, |x| x.as_bool().unwrap());
@@ -47,115 +50,116 @@ fn init_gamblers() -> Vec<GamblerInfo> {
         let username = item.lookup("username").unwrap().as_str().unwrap();
         let password = item.lookup("password").unwrap().as_str().unwrap();
 
-        let gambler = gamblers::new(host);
-
-        // TODO(loyd): parallel authorization.
-        if let Err(error) = gambler.authorize(username, password) {
-            println!("Error during auth {}: {}", host, error);
-            continue;
-        }
-
-        println!("Authorized: {}", host);
-
-        info.push(GamblerInfo {
+        bookies.push(Bookie {
             host: host.to_owned(),
-            gambler: gambler
+            username: username.to_owned(),
+            password: password.to_owned(),
+            gambler: gamblers::new(host)
         });
     }
 
-    info
+    bookies
 }
 
-fn get_delay_window() -> (Duration, Duration) {
-    let min = CONFIG.lookup("arbitrer.min-delay").unwrap().as_integer().unwrap();
-    let max = CONFIG.lookup("arbitrer.max-delay").unwrap().as_integer().unwrap();
+fn run_gambler<'a>(bookie: &'a Bookie,
+                   incoming: Sender<MarkedOffer<'a>>,
+                   outgoing: Sender<MarkedOffer<'a>>)
+{
+    // TODO(loyd): add error handling (don't forget about catching panics!).
+    if let Err(error) = bookie.gambler.authorize(&bookie.username, &bookie.password) {
+        error!("Auth {}: {}", bookie.host, error);
+        return;
+    }
 
-    (Duration::minutes(min), Duration::minutes(max))
-}
+    let error = bookie.gambler.watch(&|offer, update| {
+        let marked = MarkedOffer(bookie, offer);
 
-fn fetch_events(gamblers: &[GamblerInfo]) -> Vec<Event> {
-    let queue = &MsQueue::new();
-
-    let events = crossbeam::scope(|scope| {
-        for (idx, info) in gamblers.iter().enumerate() {
-            scope.spawn(move || {
-                let result = info.gambler.fetch_offers();
-
-                if let Err(ref error) = result {
-                    println!("Error during fetching from {}: {}", info.host, error);
-                    queue.push(None);
-                    return;
-                }
-
-                let result = result.unwrap();
-                if result.is_empty() {
-                    println!("There is no offers from {}", info.host);
-                    queue.push(None);
-                    return;
-                }
-
-                for offer in result {
-                    queue.push(Some(MarkedOffer(idx, offer)))
-                }
-
-                queue.push(None);
-            });
-        }
-
-        group_offers(queue, gamblers.len())
-    });
-
-    events.into_iter().map(|(_, e)| e).collect()
-}
-
-fn group_offers(queue: &MsQueue<Option<MarkedOffer>>, mut count: usize) -> HashMap<Offer, Event> {
-    let mut events: HashMap<_, Event> = HashMap::new();
-
-    while count > 0 {
-        let marked = queue.pop();
-
-        if marked.is_none() {
-            count -= 1;
-            continue;
-        }
-
-        let marked = marked.unwrap();
-
-        if events.contains_key(&marked.1) {
-            events.get_mut(&marked.1).unwrap().push(marked);
+        if update {
+            incoming.send(marked).unwrap();
         } else {
-            // TODO(loyd): how to avoid copying?
-            events.insert(marked.1.clone(), vec![marked]);
+            outgoing.send(marked).unwrap();
+        }
+    }).unwrap_err();
+
+    error!("{}: {}", bookie.host, error);
+}
+
+fn process_channels(incoming: Receiver<MarkedOffer>, outgoing: Receiver<MarkedOffer>) {
+    let mut events = HashMap::new();
+
+    loop {
+        let marked = incoming.recv().unwrap();
+        let key = marked.1.clone();
+        update_offer(&mut events, marked);
+
+        while let Ok(marked) = outgoing.try_recv() {
+            remove_offer(&mut events, marked);
+        }
+
+        if let Some(event) = events.get(&key) {
+            realize_event(event);
         }
     }
-
-    events
 }
 
-fn realize_events(gamblers: &[GamblerInfo], events: &[Event]) {
-    for (i, event) in events.iter().enumerate() {
-        println!("[#{}] {}, {:?}:", i, event[0].1.date, event[0].1.kind);
+fn remove_offer(events: &mut HashMap<Offer, Event>, marked: MarkedOffer) {
+    let mut remove_event = false;
 
-        for offer in event {
-            println!("  {}: {:?}", gamblers[offer.0].host, offer.1.outcomes);
+    if let Some(event) = events.get_mut(&marked.1) {
+        let index = event.iter()
+            .position(|stored| stored.0 as *const _ == marked.0 as *const _);
+
+        if let Some(index) = index {
+            event.swap_remove(index);
+            debug!("{} by {} is removed", marked.1, marked.0.host);
+        } else {
+            warn!("There is no {} by {}", marked.1, marked.0.host);
         }
 
-        let outcomes = event.into_iter().map(|o| o.1.outcomes.as_slice());
-        let opp = opportunity::find_best(outcomes, Strategy::Unbiased);
+        remove_event = event.is_empty();
+    }
 
-        if let Some(opp) = opp {
-            println!("  There is an opportunity: {:?}", opp);
-        }
+    if remove_event {
+        debug!("Event [{} by {}] is removed", marked.1, marked.0.host);
+        events.remove(&marked.1);
     }
 }
 
-fn find_delay(events: &[Event]) -> Duration {
-    let nearest = events.iter().map(|b| b[0].1.date).min().unwrap();
-    let now = UTC::now();
+fn update_offer<'i>(events: &mut HashMap<Offer, Event<'i>>, marked: MarkedOffer<'i>) {
+    if events.contains_key(&marked.1) {
+        let event = events.get_mut(&marked.1).unwrap();
 
-    nearest - now
+        let index = event.iter()
+            .position(|stored| stored.0 as *const _ == marked.0 as *const _);
+
+        if let Some(index) = index {
+            debug!("{} by {} is updated", marked.1, marked.0.host);
+            event[index] = marked;
+        } else {
+            debug!("{} by {} is added", marked.1, marked.0.host);
+            event.push(marked);
+        }
+    } else {
+        debug!("Event [{} by {}] is added", marked.1, marked.0.host);
+        events.insert(marked.1.clone(), vec![marked]);
+    }
 }
 
-fn clamp<T: cmp::Ord>(min: T, val: T, max: T) -> T {
-    cmp::max(min, cmp::min(val, max))
+fn realize_event(event: &Event) {
+    if event.len() < 2 {
+        return;
+    }
+
+    info!("Checking event:");
+
+    for &MarkedOffer(bookie, ref offer) in event {
+        info!("    {} by {}", offer, bookie.host);
+    }
+
+    let outcomes = event.into_iter().map(|o| o.1.outcomes.as_slice());
+    let opp = opportunity::find_best(outcomes, Strategy::Unbiased);
+
+    if let Some(opp) = opp {
+        info!("  => There is an opportunity: {:?}", opp);
+    }
 }

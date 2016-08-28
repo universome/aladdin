@@ -1,20 +1,15 @@
-use base::Prime;
-use base::Currency;
+use base::error::Result;
+use base::currency::Currency;
 use events::{Offer, Outcome};
-
-pub use self::egamingbets::EGB;
-pub use self::vitalbet::VitalBet;
 
 mod egamingbets;
 mod vitalbet;
 
 pub trait Gambler {
-    fn authorize(&self, username: &str, password: &str) -> Prime<()>;
-    fn check_balance(&self) -> Prime<Currency>;
-    fn fetch_offers(&self) -> Prime<Vec<Offer>>;
-    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Prime<()>;
-
-    fn reset_cache(&self) {}
+    fn authorize(&self, username: &str, password: &str) -> Result<()>;
+    fn check_balance(&self) -> Result<Currency>;
+    fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()>;
+    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Result<()>;
 }
 
 macro_rules! gambler_map {
