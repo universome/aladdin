@@ -1,5 +1,3 @@
-use chrono::{NaiveDateTime, DateTime, UTC};
-
 use base::error::Result;
 use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
@@ -124,7 +122,7 @@ impl Into<Result<Option<Offer>>> for Bet {
         }
 
         Ok(Some(Offer {
-            date: DateTime::from_utc(NaiveDateTime::from_timestamp(self.date as i64, 0), UTC),
+            date: self.date,
             kind: kind,
             outcomes: outcomes,
             inner_id: self.id as u64

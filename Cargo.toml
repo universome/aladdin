@@ -7,7 +7,7 @@ authors = [
 ]
 
 [dependencies]
-chrono = "^0.2.25"
+time = "^0.1.35"
 hyper = "^0.9.10"
 kuchiki = {version = "^0.3.3", features = ["hyper"]}
 regex = "^0.1.73"

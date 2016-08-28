@@ -1,4 +1,4 @@
-extern crate chrono;
+extern crate time;
 #[macro_use]
 extern crate hyper;
 extern crate kuchiki;

@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use chrono::{NaiveDateTime, DateTime, UTC};
+use time;
 
 use base::error::Result;
 use base::timers::Periodic;
@@ -97,10 +97,10 @@ impl Into<Result<Option<Offer>>> for Match {
             .map(|odd| Outcome(odd.Title, odd.Value))
             .collect();
 
-        let date = try!(NaiveDateTime::parse_from_str(&self.DateOfMatch, "%Y-%m-%dT%H:%M:%S"));
+        let ts = try!(time::strptime(&self.DateOfMatch, "%Y-%m-%dT%H:%M:%S")).to_timespec();
 
         Ok(Some(Offer {
-            date: DateTime::from_utc(date, UTC),
+            date: ts.sec as u32,
             kind: Kind::Dota2(Dota2::Series),
             outcomes: outcomes,
             inner_id: self.ID

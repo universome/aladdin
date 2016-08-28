@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use crossbeam;
 use crossbeam::sync::MsQueue;
+use time;
 
 use base::config::CONFIG;
 use events::Offer;
@@ -81,11 +82,11 @@ fn process_queues(incoming: &MsQueue<MarkedOffer>, outgoing: &MsQueue<MarkedOffe
     loop {
         let marked = incoming.pop();
         let key = marked.1.clone();
-        println!("Updated [{}]: {:?} {:?}", marked.0.host, marked.1.date, marked.1.kind);
+        println!("Updated [{}]: {:?}", marked.0.host, marked.1.kind);
         update_offer(&mut events, marked);
 
         while let Some(marked) = outgoing.try_pop() {
-            println!("Updated [{}]: {:?} {:?}", marked.0.host, marked.1.date, marked.1.kind);
+            println!("Updated [{}]: {:?}", marked.0.host, marked.1.kind);
             remove_offer(&mut events, marked);
         }
 
@@ -132,10 +133,10 @@ fn update_offer<'i>(events: &mut HashMap<Offer, Event<'i>>, marked: MarkedOffer<
 }
 
 fn realize_event(event: &Event) {
-    println!("{}, {:?}:", event[0].1.date.date().naive_utc(), event[0].1.kind);
+    println!("{}, {:?}:", format_date(event[0].1.date, "%d/%m"), event[0].1.kind);
 
     for &MarkedOffer(vendor, ref offer) in event {
-        print!("    {:20} {}", vendor.host, offer.date.time());
+        print!("    {:20} {}", vendor.host, format_date(offer.date, "%R"));
 
         for outcome in &offer.outcomes {
             print!(" {:15}", outcome.0);
@@ -156,4 +157,8 @@ fn realize_event(event: &Event) {
     }
 
     print!("\n");
+}
+
+fn format_date(date: u32, format: &str) -> String {
+    time::strftime(format, &time::at_utc(time::Timespec::new(date as i64, 0)).to_local()).unwrap()
 }
