@@ -96,6 +96,8 @@ impl Session {
         let mut url = self.base_url.clone();
         url.push_str(path);
 
+        debug!("{} {}", if body.is_some() { "GET" } else { "POST" }, url);
+
         let builder = match body {
             Some(body) => self.client.post(&url).body(body),
             None => self.client.get(&url)

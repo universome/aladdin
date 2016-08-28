@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 extern crate time;
 #[macro_use]
 extern crate hyper;
@@ -19,6 +22,8 @@ mod opportunity;
 mod arbitrer;
 
 fn main() {
+    env_logger::init().unwrap();
+
     // TODO(loyd): make CLI.
     arbitrer::run();
 }

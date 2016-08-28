@@ -10,7 +10,7 @@ lazy_static! {
         }
 
         for error in parser.errors {
-            println!("{}", error);
+            error!("{}", error);
         }
 
         panic!("The config is invalid.");

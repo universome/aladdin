@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use crossbeam;
 use crossbeam::sync::MsQueue;
-use time;
 
 use base::config::CONFIG;
 use events::Offer;
@@ -64,7 +63,7 @@ fn run_gambler<'a>(bookie: &'a Bookie,
 {
     // TODO(loyd): add error handling (don't forget about catching panics!).
     if let Err(error) = bookie.gambler.authorize(&bookie.username, &bookie.password) {
-        println!("Auth {}: {}", bookie.host, error);
+        error!("Auth {}: {}", bookie.host, error);
         return;
     }
 
@@ -73,7 +72,7 @@ fn run_gambler<'a>(bookie: &'a Bookie,
         if update { incoming.push(marked); } else { outgoing.push(marked); }
     }).unwrap_err();
 
-    println!("{}: {}", bookie.host, error);
+    error!("{}: {}", bookie.host, error);
 }
 
 fn process_queues(incoming: &MsQueue<MarkedOffer>, outgoing: &MsQueue<MarkedOffer>) {
@@ -82,11 +81,9 @@ fn process_queues(incoming: &MsQueue<MarkedOffer>, outgoing: &MsQueue<MarkedOffe
     loop {
         let marked = incoming.pop();
         let key = marked.1.clone();
-        println!("Updated [{}]: {:?}", marked.0.host, marked.1.kind);
         update_offer(&mut events, marked);
 
         while let Some(marked) = outgoing.try_pop() {
-            println!("Updated [{}]: {:?}", marked.0.host, marked.1.kind);
             remove_offer(&mut events, marked);
         }
 
@@ -105,12 +102,16 @@ fn remove_offer(events: &mut HashMap<Offer, Event>, marked: MarkedOffer) {
 
         if let Some(index) = index {
             event.swap_remove(index);
+            debug!("{} by {} is removed", marked.1, marked.0.host);
+        } else {
+            warn!("There is no {} by {}", marked.1, marked.0.host);
         }
 
-        remove_event = !event.is_empty();
+        remove_event = event.is_empty();
     }
 
     if remove_event {
+        debug!("Event [{} by {}] is removed", marked.1, marked.0.host);
         events.remove(&marked.1);
     }
 }
@@ -123,42 +124,33 @@ fn update_offer<'i>(events: &mut HashMap<Offer, Event<'i>>, marked: MarkedOffer<
             .position(|stored| stored.0 as *const _ == marked.0 as *const _);
 
         if let Some(index) = index {
+            debug!("{} by {} is updated", marked.1, marked.0.host);
             event[index] = marked;
         } else {
+            debug!("{} by {} is added", marked.1, marked.0.host);
             event.push(marked);
         }
     } else {
+        debug!("Event [{} by {}] is added", marked.1, marked.0.host);
         events.insert(marked.1.clone(), vec![marked]);
     }
 }
 
 fn realize_event(event: &Event) {
-    println!("{}, {:?}:", format_date(event[0].1.date, "%d/%m"), event[0].1.kind);
+    if event.len() < 2 {
+        return;
+    }
 
-    for &MarkedOffer(vendor, ref offer) in event {
-        print!("    {:20} {}", vendor.host, format_date(offer.date, "%R"));
+    info!("Checking event:");
 
-        for outcome in &offer.outcomes {
-            print!(" {:15}", outcome.0);
-        }
-
-        for outcome in &offer.outcomes {
-            print!(" {:.2}", outcome.1);
-        }
-
-        print!("\n");
+    for &MarkedOffer(bookie, ref offer) in event {
+        info!("    {} by {}", offer, bookie.host);
     }
 
     let outcomes = event.into_iter().map(|o| o.1.outcomes.as_slice());
     let opp = opportunity::find_best(outcomes, Strategy::Unbiased);
 
     if let Some(opp) = opp {
-        println!("  => There is an opportunity: {:?}", opp);
+        info!("  => There is an opportunity: {:?}", opp);
     }
-
-    print!("\n");
-}
-
-fn format_date(date: u32, format: &str) -> String {
-    time::strftime(format, &time::at_utc(time::Timespec::new(date as i64, 0)).to_local()).unwrap()
 }
