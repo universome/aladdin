@@ -23,11 +23,11 @@ pub enum Dota2 { Series, Map(u32), FirstBlood(u32), First10Kills(u32) }
 
 impl PartialEq for Offer {
     fn eq(&self, other: &Offer) -> bool {
-        if round_date(self.date) != round_date(other.date) {
+        if self.kind != other.kind {
             return false;
         }
 
-        if self.kind != other.kind {
+        if round_date(self.date) != round_date(other.date) {
             return false;
         }
 
