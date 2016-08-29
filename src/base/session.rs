@@ -103,9 +103,9 @@ impl Session {
             None => self.client.get(&url)
         };
 
-        let mut cookie = self.cookie.lock().unwrap();
+        let cookie = self.cookie.lock().unwrap().clone();
 
-        headers.set(cookie.clone());
+        headers.set(cookie);
         headers.set(UserAgent(USER_AGENT.to_owned()));
 
         if let Some(body) = body {
@@ -119,7 +119,17 @@ impl Session {
         }
 
         if let Some(cookies) = response.headers.get::<SetCookie>() {
-            *cookie = Cookie(cookies.0.clone());
+            let mut stored = self.cookie.lock().unwrap();
+
+            for c in &cookies.0 {
+                let option = stored.iter().position(|x| c.name == x.name && c.domain == x.domain);
+
+                if let Some(index) = option {
+                    stored[index] = c.clone();
+                } else {
+                    stored.push(c.clone());
+                }
+            }
         }
 
         Ok(response)
