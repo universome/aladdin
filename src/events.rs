@@ -87,7 +87,7 @@ fn fuzzy_eq(lhs: &str, rhs: &str) -> bool {
 }
 
 fn round_date(ts: u32) -> u32 {
-    ts / (30 * 60) * (30 * 60)
+    (ts + 15 * 60) / (30 * 60) * (30 * 60)
 }
 
 #[test]
@@ -107,9 +107,11 @@ fn test_round_date() {
         time::strptime(&date, "%F %H:%M").unwrap().to_timespec().sec as u32
     }
 
+    assert_eq!(round_date(to_unix("11:30")), to_unix("11:30"));
+    assert_eq!(round_date(to_unix("11:44")), to_unix("11:30"));
+    assert_eq!(round_date(to_unix("11:45")), to_unix("12:00"));
     assert_eq!(round_date(to_unix("12:00")), to_unix("12:00"));
-    assert_eq!(round_date(to_unix("12:29")), to_unix("12:00"));
+    assert_eq!(round_date(to_unix("12:14")), to_unix("12:00"));
+    assert_eq!(round_date(to_unix("12:15")), to_unix("12:30"));
     assert_eq!(round_date(to_unix("12:30")), to_unix("12:30"));
-    assert_eq!(round_date(to_unix("12:31")), to_unix("12:30"));
-    assert_eq!(round_date(to_unix("12:59")), to_unix("12:30"));
 }
