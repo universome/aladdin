@@ -6,7 +6,8 @@ use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
 use base::currency::Currency;
 use gamblers::Gambler;
-use events::{Offer, Outcome, DRAW, Kind, Dota2};
+use events::{Offer, Outcome, DRAW, Kind};
+use events::{CounterStrike, Dota2, LeagueOfLegends, Overwatch, StarCraft2, WorldOfTanks};
 
 pub struct EGB {
     session: Session
@@ -103,7 +104,12 @@ impl Into<Result<Option<Offer>>> for Bet {
         }
 
         let kind = match self.game.as_ref() {
+            "Counter-Strike" => Kind::CounterStrike(CounterStrike::Series),
             "Dota2" => Kind::Dota2(Dota2::Series),
+            "LoL" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
+            "Overwatch" => Kind::Overwatch(Overwatch::Series),
+            "StarCraft2" => Kind::StarCraft2(StarCraft2::Series),
+            "WorldOfTanks" => Kind::WorldOfTanks(WorldOfTanks::Series),
             _ => return Ok(None)
         };
 
