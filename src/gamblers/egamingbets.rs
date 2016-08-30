@@ -1,3 +1,4 @@
+use std::cmp;
 use time;
 
 use base::error::Result;
@@ -48,13 +49,31 @@ impl Gambler for EGB {
 
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
         // TODO(loyd): removing offers.
-        // TODO(loyd): optimize this.
-        for _ in Periodic::new(40) {
-            let table = try!(self.session.get_json::<Table>("/bets?st=0&ut=0&f="));
 
-            for bet in table.bets {
+        let table = try!(self.session.get_json::<Table>("/bets?st=0&ut=0&f="));
+        let mut user_time = table.user_time;
+        let mut update_time = 0;
+
+        if let Some(bets) = table.bets {
+            for bet in bets {
+                update_time = cmp::max(update_time, bet.ut);
                 if let Some(offer) = try!(bet.into()) {
                     cb(offer, true);
+                }
+            }
+        }
+
+        for _ in Periodic::new(5) {
+            let path = format!("/bets?st={}&ut={}&fg=0&f=", user_time, update_time);
+            let table = try!(self.session.get_json::<Table>(&path));
+            user_time = table.user_time;
+
+            if let Some(bets) = table.bets {
+                for bet in bets {
+                    update_time = cmp::max(update_time, bet.ut);
+                    if let Some(offer) = try!(bet.into()) {
+                        cb(offer, true);
+                    }
                 }
             }
         }
@@ -74,8 +93,8 @@ struct Balance {
 
 #[derive(RustcDecodable)]
 struct Table {
-    // TODO(loyd): also check `nested_bets`.
-    bets: Vec<Bet>
+    user_time: u32,
+    bets: Option<Vec<Bet>>
 }
 
 #[derive(RustcDecodable)]
@@ -88,7 +107,8 @@ struct Bet {
     gamer_1: Gamer,
     gamer_2: Gamer,
     id: u32,
-    winner: i32
+    winner: i32,
+    ut: u32
 }
 
 #[derive(RustcDecodable)]
