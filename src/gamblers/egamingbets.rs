@@ -100,11 +100,13 @@ impl Gambler for EGB {
             while !heap.is_empty() {
                 let &TimeMarker(date, id) = heap.peek().unwrap();
 
-                if -date as u32 <= threshold {
-                    heap.pop();
-                    let offer = map.remove(&id).unwrap();
-                    cb(offer, false);
+                if -date as u32 > threshold {
+                    break;
                 }
+
+                heap.pop();
+                let offer = map.remove(&id).unwrap();
+                cb(offer, false);
             }
         }
 
