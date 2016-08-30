@@ -1,4 +1,5 @@
 use std::cmp;
+use std::collections::{BinaryHeap, HashMap};
 use time;
 
 use base::error::Result;
@@ -48,30 +49,61 @@ impl Gambler for EGB {
     }
 
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+        let mut map = HashMap::new();
+        let mut heap = BinaryHeap::new();
+
         let table = try!(self.session.get_json::<Table>("/bets?st=0&ut=0&f="));
         let mut user_time = table.user_time;
         let mut update_time = 0;
 
         if let Some(bets) = table.bets {
             for bet in bets {
+                let id = bet.id;
                 update_time = cmp::max(update_time, bet.ut);
+
                 if let Some(offer) = try!(bet.into()) {
+                    map.insert(id, offer.clone());
+                    heap.push(TimeMarker(-(offer.date as i32), id));
                     cb(offer, true);
                 }
             }
         }
 
-        for _ in Periodic::new(5) {
+        let period = 5;
+
+        for _ in Periodic::new(period) {
             let path = format!("/bets?st={}&ut={}&fg=0&f=", user_time, update_time);
             let table = try!(self.session.get_json::<Table>(&path));
             user_time = table.user_time;
 
+            // Add/update offers.
             if let Some(bets) = table.bets {
                 for bet in bets {
+                    let id = bet.id;
                     update_time = cmp::max(update_time, bet.ut);
+
                     if let Some(offer) = try!(bet.into()) {
+                        // We assume that offers for the id are equal and store only first.
+                        if !map.contains_key(&id) {
+                            map.insert(id, offer.clone());
+                            heap.push(TimeMarker(-(offer.date as i32), id));
+                        }
+
                         cb(offer, true);
                     }
+                }
+            }
+
+            // Remove old offers.
+            let threshold = time::get_time().sec as u32 + period as u32;
+
+            while !heap.is_empty() {
+                let &TimeMarker(date, id) = heap.peek().unwrap();
+
+                if -date as u32 <= threshold {
+                    heap.pop();
+                    let offer = map.remove(&id).unwrap();
+                    cb(offer, false);
                 }
             }
         }
@@ -83,6 +115,9 @@ impl Gambler for EGB {
         unimplemented!();
     }
 }
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct TimeMarker(i32, u32);
 
 #[derive(RustcDecodable)]
 struct Balance {
