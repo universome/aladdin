@@ -29,9 +29,9 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         match *self {
-            Network(ref e) => e.fmt(f),
-            Status(ref e) => e.fmt(f),
-            Unexpected(ref e) => e.fmt(f)
+            Network(ref e) => write!(f, "Network error: {}", e),
+            Status(ref e) => write!(f, "Bad status code: {}", e),
+            Unexpected(ref e) => write!(f, "Unexpected error: {}", e)
         }
     }
 }
