@@ -1,3 +1,5 @@
+use std::cmp;
+use std::collections::{BinaryHeap, HashMap};
 use time;
 
 use base::error::Result;
@@ -6,7 +8,8 @@ use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
 use base::currency::Currency;
 use gamblers::Gambler;
-use events::{Offer, Outcome, DRAW, Kind, Dota2};
+use events::{Offer, Outcome, DRAW, Kind};
+use events::{CounterStrike, Dota2, LeagueOfLegends, Overwatch, StarCraft2, WorldOfTanks};
 
 pub struct EGB {
     session: Session
@@ -46,14 +49,61 @@ impl Gambler for EGB {
     }
 
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
-        // TODO(loyd): removing offers.
-        // TODO(loyd): optimize this.
-        for _ in Periodic::new(40) {
-            let table = try!(self.session.get_json::<Table>("/bets?st=0&ut=0&f="));
+        let mut map = HashMap::new();
+        let mut heap = BinaryHeap::new();
 
-            for bet in table.bets {
+        let table = try!(self.session.get_json::<Table>("/bets?st=0&ut=0&f="));
+        let mut user_time = table.user_time;
+        let mut update_time = 0;
+
+        if let Some(bets) = table.bets {
+            for bet in bets {
+                let id = bet.id;
+                update_time = cmp::max(update_time, bet.ut);
+
                 if let Some(offer) = try!(bet.into()) {
+                    map.insert(id, offer.clone());
+                    heap.push(TimeMarker(-(offer.date as i32), id));
                     cb(offer, true);
+                }
+            }
+        }
+
+        let period = 5;
+
+        for _ in Periodic::new(period) {
+            let path = format!("/bets?st={}&ut={}&fg=0&f=", user_time, update_time);
+            let table = try!(self.session.get_json::<Table>(&path));
+            user_time = table.user_time;
+
+            // Add/update offers.
+            if let Some(bets) = table.bets {
+                for bet in bets {
+                    let id = bet.id;
+                    update_time = cmp::max(update_time, bet.ut);
+
+                    if let Some(offer) = try!(bet.into()) {
+                        // We assume that offers for the id are equal and store only first.
+                        if !map.contains_key(&id) {
+                            map.insert(id, offer.clone());
+                            heap.push(TimeMarker(-(offer.date as i32), id));
+                        }
+
+                        cb(offer, true);
+                    }
+                }
+            }
+
+            // Remove old offers.
+            let threshold = time::get_time().sec as u32 + period as u32;
+
+            while !heap.is_empty() {
+                let &TimeMarker(date, id) = heap.peek().unwrap();
+
+                if -date as u32 <= threshold {
+                    heap.pop();
+                    let offer = map.remove(&id).unwrap();
+                    cb(offer, false);
                 }
             }
         }
@@ -66,6 +116,9 @@ impl Gambler for EGB {
     }
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct TimeMarker(i32, u32);
+
 #[derive(RustcDecodable)]
 struct Balance {
     bets: String
@@ -73,8 +126,8 @@ struct Balance {
 
 #[derive(RustcDecodable)]
 struct Table {
-    // TODO(loyd): also check `nested_bets`.
-    bets: Vec<Bet>
+    user_time: u32,
+    bets: Option<Vec<Bet>>
 }
 
 #[derive(RustcDecodable)]
@@ -87,7 +140,9 @@ struct Bet {
     gamer_1: Gamer,
     gamer_2: Gamer,
     id: u32,
-    winner: i32
+    winner: i32,
+    live: u8,
+    ut: u32
 }
 
 #[derive(RustcDecodable)]
@@ -97,13 +152,23 @@ struct Gamer {
 
 impl Into<Result<Option<Offer>>> for Bet {
     fn into(self) -> Result<Option<Offer>> {
-        // Irrelevant by date.
-        if self.winner > 0 || time::get_time().sec as u32 >= self.date {
+        let irrelevant = self.winner > 0                            // Ended or cancelled.
+                      || self.live == 1                             // Exactly live.
+                      || time::get_time().sec as u32 >= self.date   // Started.
+                      || self.gamer_1.nick.contains("(Live)")       // Live.
+                      || self.gamer_2.nick.contains("(Live)");
+
+        if irrelevant {
             return Ok(None);
         }
 
         let kind = match self.game.as_ref() {
+            "Counter-Strike" => Kind::CounterStrike(CounterStrike::Series),
             "Dota2" => Kind::Dota2(Dota2::Series),
+            "LoL" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
+            "Overwatch" => Kind::Overwatch(Overwatch::Series),
+            "StarCraft2" => Kind::StarCraft2(StarCraft2::Series),
+            "WorldOfTanks" => Kind::WorldOfTanks(WorldOfTanks::Series),
             _ => return Ok(None)
         };
 
@@ -111,12 +176,9 @@ impl Into<Result<Option<Offer>>> for Bet {
         let coef_2 = try!(self.coef_2.parse());
         let coef_draw = if self.coef_draw == "" { 0. } else { try!(self.coef_draw.parse()) };
 
-        let nick_1 = self.gamer_1.nick.replace(" (Live)", "");
-        let nick_2 = self.gamer_2.nick.replace(" (Live)", "");
-
         let mut outcomes = vec![
-            Outcome(nick_1, coef_1),
-            Outcome(nick_2, coef_2)
+            Outcome(self.gamer_1.nick, coef_1),
+            Outcome(self.gamer_2.nick, coef_2)
         ];
 
         if coef_draw > 0. {

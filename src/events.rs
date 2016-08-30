@@ -18,11 +18,32 @@ pub static DRAW: &'static str = "(draw)";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Kind {
-    Dota2(Dota2)
+    CounterStrike(CounterStrike),
+    Dota2(Dota2),
+    LeagueOfLegends(LeagueOfLegends),
+    Overwatch(Overwatch),
+    StarCraft2(StarCraft2),
+    WorldOfTanks(WorldOfTanks),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Dota2 { Series, Map(u32), FirstBlood(u32), First10Kills(u32) }
+pub enum CounterStrike { Series }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Dota2 { Series }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum LeagueOfLegends { Series }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Overwatch { Series }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum StarCraft2 { Series }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum WorldOfTanks { Series }
+
 
 impl Display for Offer {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
