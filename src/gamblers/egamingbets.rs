@@ -48,8 +48,6 @@ impl Gambler for EGB {
     }
 
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
-        // TODO(loyd): removing offers.
-
         let table = try!(self.session.get_json::<Table>("/bets?st=0&ut=0&f="));
         let mut user_time = table.user_time;
         let mut update_time = 0;
@@ -108,6 +106,7 @@ struct Bet {
     gamer_2: Gamer,
     id: u32,
     winner: i32,
+    live: u8,
     ut: u32
 }
 
@@ -118,8 +117,13 @@ struct Gamer {
 
 impl Into<Result<Option<Offer>>> for Bet {
     fn into(self) -> Result<Option<Offer>> {
-        // Irrelevant by date.
-        if self.winner > 0 || time::get_time().sec as u32 >= self.date {
+        let irrelevant = self.winner > 0                            // Ended or cancelled.
+                      || self.live == 1                             // Exactly live.
+                      || time::get_time().sec as u32 >= self.date   // Started.
+                      || self.gamer_1.nick.contains("(Live)")       // Live.
+                      || self.gamer_2.nick.contains("(Live)");
+
+        if irrelevant {
             return Ok(None);
         }
 
@@ -137,12 +141,9 @@ impl Into<Result<Option<Offer>>> for Bet {
         let coef_2 = try!(self.coef_2.parse());
         let coef_draw = if self.coef_draw == "" { 0. } else { try!(self.coef_draw.parse()) };
 
-        let nick_1 = self.gamer_1.nick.replace(" (Live)", "");
-        let nick_2 = self.gamer_2.nick.replace(" (Live)", "");
-
         let mut outcomes = vec![
-            Outcome(nick_1, coef_1),
-            Outcome(nick_2, coef_2)
+            Outcome(self.gamer_1.nick, coef_1),
+            Outcome(self.gamer_2.nick, coef_2)
         ];
 
         if coef_draw > 0. {
