@@ -1,3 +1,6 @@
+#![feature(plugin, custom_derive)]
+#![plugin(serde_macros)]
+
 #[macro_use]
 extern crate log;
 extern crate env_logger;
@@ -11,7 +14,8 @@ extern crate lazy_static;
 extern crate url;
 #[macro_use]
 extern crate mime;
-extern crate rustc_serialize;
+extern crate serde;
+extern crate serde_json;
 extern crate toml;
 extern crate crossbeam;
 

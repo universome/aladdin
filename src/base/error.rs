@@ -8,9 +8,7 @@ use std::num::{ParseIntError, ParseFloatError};
 use std::str::ParseBoolError;
 use hyper::Error as HyperError;
 use time::ParseError as TimeParseError;
-use rustc_serialize::json::DecoderError as JsonDecoderError;
-use rustc_serialize::json::EncoderError as JsonEncoderError;
-use rustc_serialize::json::ParserError as JsonParserError;
+use serde_json::Error as JsonError;
 use hyper::status::StatusCode;
 
 use self::Error::*;
@@ -52,10 +50,10 @@ impl From<StatusCode> for Error {
     }
 }
 
-impl From<JsonParserError> for Error {
-    fn from(err: JsonParserError) -> Error {
+impl From<JsonError> for Error {
+    fn from(err: JsonError) -> Error {
         match err {
-            JsonParserError::IoError(err) => Network(From::from(err)),
+            JsonError::Io(err) => Network(From::from(err)),
             err => Unexpected(From::from(err))
         }
     }
@@ -83,7 +81,5 @@ impl_boxed!(Network, IoError);
 impl_boxed!(Unexpected, ParseIntError);
 impl_boxed!(Unexpected, ParseFloatError);
 impl_boxed!(Unexpected, ParseBoolError);
-impl_boxed!(Unexpected, JsonDecoderError);
-impl_boxed!(Unexpected, JsonEncoderError);
 impl_boxed!(Unexpected, TimeParseError);
 impl_boxed!(Unexpected, String);

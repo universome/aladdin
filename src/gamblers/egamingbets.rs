@@ -121,18 +121,18 @@ impl Gambler for EGB {
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct TimeMarker(i32, u32);
 
-#[derive(RustcDecodable)]
+#[derive(Deserialize)]
 struct Balance {
     bets: String
 }
 
-#[derive(RustcDecodable)]
+#[derive(Deserialize)]
 struct Table {
     user_time: u32,
     bets: Option<Vec<Bet>>
 }
 
-#[derive(RustcDecodable)]
+#[derive(Deserialize)]
 struct Bet {
     game: String,
     date: u32,
@@ -147,7 +147,7 @@ struct Bet {
     ut: u32
 }
 
-#[derive(RustcDecodable)]
+#[derive(Deserialize)]
 struct Gamer {
     nick: String
 }

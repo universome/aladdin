@@ -63,7 +63,7 @@ impl Gambler for VitalBet {
     }
 }
 
-#[derive(RustcEncodable)]
+#[derive(Serialize)]
 struct VitalBetAuthData<'a> {
     BrowserFingerPrint: i64,
     Login: &'a str,
@@ -71,19 +71,19 @@ struct VitalBetAuthData<'a> {
     RememberMe: bool
 }
 
-#[derive(RustcDecodable)]
+#[derive(Deserialize)]
 struct Balance {
     Balance: f64
 }
 
-#[derive(RustcDecodable)]
+#[derive(Deserialize)]
 struct Match {
     ID: u64,
     DateOfMatch: String,
     PreviewOdds: Vec<Odd>
 }
 
-#[derive(RustcDecodable)]
+#[derive(Deserialize)]
 struct Odd {
     IsSuspended: bool,
     Value: f64,
