@@ -31,12 +31,12 @@ impl Gambler for EGB {
         let csrf = try!(csrf_elem.get_attr("content"));
 
         self.session
-            .post_form("/users/sign_in", &[
+            .post_form("/egb_users/sign_in", &[
                 ("utf8", "✓"),
                 ("authenticity_token", &csrf),
-                ("user[name]", username),
-                ("user[password]", password),
-                ("user[remember_me]", "1")
+                ("egb_user[name]", username),
+                ("egb_user[password]", password),
+                ("egb_user[remember_me]", "1")
             ])
             .map(|_| ())
     }
