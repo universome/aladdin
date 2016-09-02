@@ -56,12 +56,17 @@ impl Gambler for XBet {
 
             // Add/update offers.
             for offer in offers {
-                if !map.contains_key(&offer.inner_id) {
-                    map.insert(offer.inner_id, offer.clone());
-                }
+                if map.contains_key(&offer.inner_id) {
+                    // We assume that offers for the id are equal and store only first.
+                    debug_assert!(offer == map[&offer.inner_id]);
 
-                debug_assert!(offer == map[&offer.inner_id]);
-                cb(offer, true);
+                    if map[&offer.inner_id].outcomes != offer.outcomes {
+                        cb(offer, true);
+                    }
+                } else {
+                    map.insert(offer.inner_id, offer.clone());
+                    cb(offer, true);
+                }
             }
         }
 
@@ -116,8 +121,9 @@ fn grab_offers(message: Message) -> Result<Vec<Offer>> {
             "Leag" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
             "Star" => Kind::StarCraft2(StarCraft2::Series),
             "Worl" => Kind::WorldOfTanks(WorldOfTanks::Series),
+            "Hero" | "Smit" => return None,
             _ => {
-                debug!("Unknown kind: {}", info.ChampEng);
+                warn!("Unknown kind: {}", info.ChampEng);
                 return None;
             }
         };

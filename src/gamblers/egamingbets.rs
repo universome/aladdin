@@ -84,6 +84,8 @@ impl Gambler for EGB {
 
                     if let Some(offer) = try!(bet.into()) {
                         // We assume that offers for the id are equal and store only first.
+                        debug_assert!(map.get(&id).map_or(true, |o| &offer == o));
+
                         if !map.contains_key(&id) {
                             map.insert(id, offer.clone());
                             heap.push(TimeMarker(-(offer.date as i32), id));
