@@ -44,6 +44,18 @@ impl Session {
         self.request(path, Some(body), headers)
     }
 
+    pub fn get_text(&self, path: &str) -> Result<String> {
+        let mut headers = Headers::new();
+        headers.set(Accept(vec![qitem(mime!(Text/Plain))]));
+
+        let mut response = try!(self.get(path, headers));
+
+        let mut string = String::new();
+        try!(response.read_to_string(&mut string));
+
+        Ok(string)
+    }
+
     pub fn get_html(&self, path: &str) -> Result<NodeRef> {
         let mut headers = Headers::new();
         headers.set(Accept(vec![qitem(mime!(Text/Html))]));
