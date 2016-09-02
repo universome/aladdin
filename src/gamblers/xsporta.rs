@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use base::error::Result;
 use base::timers::Periodic;
+use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
 use base::currency::Currency;
 use gamblers::Gambler;
@@ -24,11 +25,33 @@ impl XBet {
 
 impl Gambler for XBet {
     fn authorize(&self, username: &str, password: &str) -> Result<()> {
-        unimplemented!();
+        let html = try!(self.session.get_html("/"));
+
+        let raw_auth_dv_elem = try!(html.query("#authDV"));
+        let raw_auth_dv = try!(raw_auth_dv_elem.get_attr("value"));
+
+        let mut auth_dv = String::new();
+
+        for code in raw_auth_dv.split('.') {
+            let code = try!(code.parse::<u8>());
+            auth_dv.push(code as char);
+        }
+
+        self.session
+            .post_form("/user/auth/", &[
+                ("authDV", &auth_dv),
+                ("uLogin", username),
+                ("uPassword", password)
+            ])
+            .map(|_| ())
     }
 
     fn check_balance(&self) -> Result<Currency> {
-        unimplemented!();
+        let text = try!(self.session.get_text("/en/user/checkUserBalance.php"));
+        let balance_str = try!(text.split(' ').next().ok_or("Invalid balance response"));
+        let balance = try!(balance_str.parse::<f64>());
+
+        Ok(Currency::from(balance))
     }
 
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
