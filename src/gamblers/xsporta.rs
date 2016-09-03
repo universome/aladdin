@@ -9,7 +9,7 @@ use base::session::Session;
 use base::currency::Currency;
 use gamblers::Gambler;
 use events::{Offer, Outcome, DRAW, Kind};
-use events::{CounterStrike, Dota2, LeagueOfLegends, Overwatch, StarCraft2, WorldOfTanks};
+use events::kinds::*;
 
 pub struct XBet {
     session: Session
@@ -142,10 +142,11 @@ fn grab_offers(message: Message) -> Result<Vec<Offer>> {
         let kind = match &info.ChampEng[..4] {
             "CS:G" | "Coun" => Kind::CounterStrike(CounterStrike::Series),
             "Dota" => Kind::Dota2(Dota2::Series),
+            "Hero" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
             "Leag" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
+            "Smit" => Kind::Smite(Smite::Series),
             "Star" => Kind::StarCraft2(StarCraft2::Series),
             "Worl" => Kind::WorldOfTanks(WorldOfTanks::Series),
-            "Hero" | "Smit" => return None,
             _ => {
                 warn!("Unknown kind: {}", info.ChampEng);
                 return None;

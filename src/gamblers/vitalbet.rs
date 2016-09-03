@@ -7,7 +7,8 @@ use base::timers::Periodic;
 use base::session::Session;
 use base::currency::Currency;
 use gamblers::Gambler;
-use events::{Offer, Outcome, Kind, Dota2};
+use events::{Offer, Outcome, Kind};
+use events::kinds::Dota2;
 
 pub struct VitalBet {
     session: Session

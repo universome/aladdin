@@ -18,32 +18,45 @@ pub static DRAW: &'static str = "(draw)";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Kind {
-    CounterStrike(CounterStrike),
-    Dota2(Dota2),
-    LeagueOfLegends(LeagueOfLegends),
-    Overwatch(Overwatch),
-    StarCraft2(StarCraft2),
-    WorldOfTanks(WorldOfTanks),
+    CounterStrike(kinds::CounterStrike),
+    Dota2(kinds::Dota2),
+    Hearthstone(kinds::Hearthstone),
+    HeroesOfTheStorm(kinds::HeroesOfTheStorm),
+    LeagueOfLegends(kinds::LeagueOfLegends),
+    Overwatch(kinds::Overwatch),
+    Smite(kinds::Smite),
+    StarCraft2(kinds::StarCraft2),
+    WorldOfTanks(kinds::WorldOfTanks)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum CounterStrike { Series }
+pub mod kinds {
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub enum CounterStrike { Series }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Dota2 { Series }
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub enum Dota2 { Series }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum LeagueOfLegends { Series }
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub enum Hearthstone { Series }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Overwatch { Series }
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub enum HeroesOfTheStorm { Series }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum StarCraft2 { Series }
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub enum LeagueOfLegends { Series }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum WorldOfTanks { Series }
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub enum Overwatch { Series }
 
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub enum Smite { Series }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub enum StarCraft2 { Series }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub enum WorldOfTanks { Series }
+}
 
 impl Display for Offer {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
