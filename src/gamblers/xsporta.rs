@@ -59,7 +59,7 @@ impl Gambler for XBet {
         let mut map = HashMap::new();
 
         // The site uses 1-mitute period, but for us it's too long.
-        for _ in Periodic::new(30) {
+        for _ in Periodic::new(15) {
             let message = try!(self.session.get_json::<Message>(path));
             let offers = try!(grab_offers(message));
 
