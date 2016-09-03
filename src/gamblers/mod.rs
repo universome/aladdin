@@ -4,6 +4,7 @@ use events::{Offer, Outcome};
 
 mod egamingbets;
 mod vitalbet;
+mod xsporta;
 
 pub trait Gambler {
     fn authorize(&self, username: &str, password: &str) -> Result<()>;
@@ -24,6 +25,7 @@ macro_rules! gambler_map {
 pub fn new(host: &str) -> Box<Gambler + Sync> {
     gambler_map!(host,
         "egamingbets.com" => egamingbets::EGB::new(),
-        "vitalbet.com" => vitalbet::VitalBet::new()
+        "vitalbet.com" => vitalbet::VitalBet::new(),
+        "1xsporta.space" => xsporta::XBet::new()
     )
 }

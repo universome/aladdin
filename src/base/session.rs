@@ -1,13 +1,16 @@
+use std::io::Read;
 use std::time::Duration;
 use std::sync::Mutex;
 use url::form_urlencoded::Serializer as UrlSerializer;
 use hyper::client::{Client, Response};
-use hyper::header::{Headers, SetCookie, Cookie, UserAgent, ContentLength, Accept, ContentType, qitem};
+use hyper::header::{Headers, SetCookie, Cookie, UserAgent, Accept, ContentType, qitem};
 use kuchiki;
 use kuchiki::NodeRef;
 use kuchiki::traits::ParserExt;
 use serde::{Serialize, Deserialize};
 use serde_json as json;
+
+header! { (XRequestedWith, "X-Requested-With") => [String] }
 
 use base::error::Result;
 
@@ -41,6 +44,18 @@ impl Session {
         self.request(path, Some(body), headers)
     }
 
+    pub fn get_text(&self, path: &str) -> Result<String> {
+        let mut headers = Headers::new();
+        headers.set(Accept(vec![qitem(mime!(Text/Plain))]));
+
+        let mut response = try!(self.get(path, headers));
+
+        let mut string = String::new();
+        try!(response.read_to_string(&mut string));
+
+        Ok(string)
+    }
+
     pub fn get_html(&self, path: &str) -> Result<NodeRef> {
         let mut headers = Headers::new();
         headers.set(Accept(vec![qitem(mime!(Text/Html))]));
@@ -66,6 +81,7 @@ impl Session {
         let mut headers = Headers::new();
         headers.set(ContentType(mime!(Application/WwwFormUrlEncoded)));
         headers.set(Accept(vec![qitem(mime!(Application/Json))]));
+        headers.set(XRequestedWith("XMLHttpRequest".to_owned()));
 
         self.post(path, &encoded, headers)
     }
@@ -96,10 +112,6 @@ impl Session {
 
         headers.set(cookie);
         headers.set(UserAgent(USER_AGENT.to_owned()));
-
-        if let Some(body) = body {
-            headers.set(ContentLength(body.len() as u64));
-        }
 
         let response = try!(builder.headers(headers).send());
 

@@ -1,8 +1,15 @@
 use std::ops::{Add, Sub, Mul};
 use std::convert::From;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Currency(pub i64);
+
+impl Display for Currency {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        write!(f, "${}.{:02}", self.0 / 100, self.0 % 100)
+    }
+}
 
 impl Add for Currency {
     type Output = Currency;

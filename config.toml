@@ -7,3 +7,8 @@ password = "aladdin"
 host = "vitalbet.com"
 username = "Алладин"
 password = "aladdin"
+
+[[bookies]]
+host = "1xsporta.space"
+username = "shmaladdin.rs@gmail.com"
+password = "aladdin.rs"
