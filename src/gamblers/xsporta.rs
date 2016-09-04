@@ -144,6 +144,7 @@ fn grab_offers(message: Message) -> Result<Vec<Offer>> {
             "Dota" => Kind::Dota2(Dota2::Series),
             "Hero" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
             "Leag" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
+            "Over" => Kind::Overwatch(Overwatch::Series),
             "Smit" => Kind::Smite(Smite::Series),
             "Star" => Kind::StarCraft2(StarCraft2::Series),
             "Worl" => Kind::WorldOfTanks(WorldOfTanks::Series),
