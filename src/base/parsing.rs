@@ -28,6 +28,11 @@ pub trait ElementDataExt {
 
 impl ElementDataExt for ElementData {
     fn get_attr(&self, name: &str) -> Result<String> {
-        Ok(try!(self.attributes.borrow().get(name).map(String::from).ok_or(name)))
+        self.attributes.borrow().get(name)
+            .map(String::from)
+            .ok_or_else(|| {
+                let message = format!("There is no \"{}\" attibute on <{}>", name, self.name.local);
+                Error::from(message)
+            })
     }
 }
