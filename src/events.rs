@@ -26,6 +26,7 @@ pub enum Kind {
     Overwatch(kinds::Overwatch),
     Smite(kinds::Smite),
     StarCraft2(kinds::StarCraft2),
+    Vainglory(kinds::Vainglory),
     WorldOfTanks(kinds::WorldOfTanks)
 }
 
@@ -53,6 +54,9 @@ pub mod kinds {
 
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub enum StarCraft2 { Series }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub enum Vainglory { Series }
 
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub enum WorldOfTanks { Series }

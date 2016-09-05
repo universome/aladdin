@@ -175,6 +175,7 @@ fn extract_offers(html: NodeRef) -> Result<Vec<Offer>> {
             "ovw" => Kind::Overwatch(Overwatch::Series),
             "smite" => Kind::Smite(Smite::Series),
             "starcraft2" => Kind::StarCraft2(StarCraft2::Series),
+            "VG" => Kind::Vainglory(Vainglory::Series),
             "wot" => Kind::WorldOfTanks(WorldOfTanks::Series),
             "cod" => continue,
             class => {
