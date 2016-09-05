@@ -16,7 +16,7 @@ use events::{Offer, Outcome, DRAW, Kind};
 use events::kinds::*;
 
 // The site uses 1-minute period, but for us it's too long.
-const PERIOD: u32 = 15;
+const PERIOD: u32 = 30;
 
 pub struct CybBet {
     session: Session
@@ -92,7 +92,7 @@ impl Gambler for CybBet {
                 }
             }
 
-            // Update time of games and request additional info about new games.
+            // Request additional info about new games.
             if let Some(games) = koef.gamesStartTime {
                 let new_games = try!(collect_new_games(&table, games));
 
