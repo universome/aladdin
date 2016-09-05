@@ -1,6 +1,10 @@
 #![allow(non_snake_case)]
 
-use kuchiki::NodeRef;
+use std::collections::HashMap;
+use kuchiki::{self, NodeRef};
+use kuchiki::traits::ParserExt;
+use serde_json as json;
+use time;
 
 use base::error::Result;
 use base::timers::Periodic;
@@ -10,6 +14,9 @@ use base::currency::Currency;
 use gamblers::Gambler;
 use events::{Offer, Outcome, DRAW, Kind};
 use events::kinds::*;
+
+// The site uses 1-minute period, but for us it's too long.
+const PERIOD: u32 = 15;
 
 pub struct CybBet {
     session: Session
@@ -36,8 +43,75 @@ impl Gambler for CybBet {
         let html = try!(self.session.get_html("/"));
         let offers = try!(extract_offers(html));
 
+        let mut table = HashMap::new();
+
         for offer in offers {
+            table.insert(offer.inner_id as u32, offer.clone());
             cb(offer, true);
+        }
+
+        for _ in Periodic::new(PERIOD) {
+            let request = table.values().map(Game::from).collect::<Vec<_>>();
+
+            println!(">> {}", json::to_string(&request).unwrap());
+
+            let response = try!(self.session.post_form("/games/getCurrentKoef", &[
+                ("request", &try!(json::to_string(&request)))
+            ]));
+
+            let koef = try!(json::from_reader::<_, CurrentKoef>(response));
+
+            if let Some(games) = koef.games {
+                for (id, coef_1, coef_2, coef_draw) in games {
+                    if !table.contains_key(&id) {
+                        continue;
+                    }
+
+                    let offer = table.get_mut(&id).unwrap();
+                    offer.outcomes[0].1 = coef_1;
+                    offer.outcomes[1].1 = coef_2;
+
+                    if coef_draw > 0. {
+                        offer.outcomes[2].1 = coef_draw;
+                    } else {
+                        debug_assert_eq!(offer.outcomes.len(), 2);
+                    }
+
+                    cb(offer.clone(), true);
+                }
+            }
+
+            if let Some(games) = koef.gamesStarted {
+                for (id,) in games {
+                    let id = try!(id.parse());
+
+                    if let Some(offer) = table.remove(&id) {
+                        cb(offer, false);
+                    }
+                }
+            }
+
+            if let Some(games) = koef.gamesStartTime {
+                let new_games = try!(collect_new_games(&table, games));
+
+                for game_id in new_games {
+                    let response = try!(self.session.post_form("/games/addNewGame", &[
+                        ("idGame", &format!("{}", game_id))
+                    ]));
+
+                    let html = try!(kuchiki::parse_html().from_http(response));
+
+                    println!("{}", html.to_string());
+
+                    let mut offers = try!(extract_offers(html));
+
+                    if !offers.is_empty() {
+                        let offer = offers.drain(..).next().unwrap();
+                        cb(offer.clone(), true);
+                        table.insert(game_id, offer);
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -48,8 +122,39 @@ impl Gambler for CybBet {
     }
 }
 
+#[derive(Deserialize)]
+struct CurrentKoef {
+    games: Option<Vec<(u32, f64, f64, f64)>>,
+    gamesStartTime: Option<Vec<(String, String)>>,
+    gamesStarted: Option<Vec<(String,)>>
+}
+
+// /games/addNewGame  idGame
+// /games/
+
+#[derive(Serialize)]
+struct Game {
+    idGame: u32,
+    team1: f64,
+    team2: f64,
+    draw: Option<f64>,
+    gameStart: u32
+}
+
+impl<'a> From<&'a Offer> for Game {
+    fn from(offer: &'a Offer) -> Game {
+        Game {
+            idGame: offer.inner_id as u32,
+            team1: offer.outcomes[0].1,
+            team2: offer.outcomes[1].1,
+            draw: offer.outcomes.get(2).map(|o| o.1),
+            gameStart: offer.date
+        }
+    }
+}
+
 fn extract_offers(html: NodeRef) -> Result<Vec<Offer>> {
-    let mut offers = vec![];
+    let mut offers = Vec::new();
 
     for tr in try!(html.query_all("tr.noResult[data-game-id]")) {
         let trn = tr.as_node();
@@ -93,8 +198,8 @@ fn extract_offers(html: NodeRef) -> Result<Vec<Offer>> {
         let coef_draw = try!(trn.query_all(".draw .price")).next().map(|s| s.text_contents());
 
         let mut outcomes = vec![
-            Outcome(team_1.trim().to_owned(), try!(coef_1.trim().parse())),
-            Outcome(team_2.trim().to_owned(), try!(coef_2.trim().parse()))
+            Outcome(team_1.to_owned(), try!(coef_1.trim().parse())),
+            Outcome(team_2.to_owned(), try!(coef_2.trim().parse()))
         ];
 
         if let Some(coef_draw) = coef_draw {
@@ -110,4 +215,31 @@ fn extract_offers(html: NodeRef) -> Result<Vec<Offer>> {
     }
 
     Ok(offers)
+}
+
+fn collect_new_games(table: &HashMap<u32, Offer>, games: Vec<(String, String)>) -> Result<Vec<u32>> {
+    let mut new_games = Vec::new();
+    let mut threshold = time::get_time().sec as u32 + PERIOD;
+
+    for (id, date) in games {
+        let date = try!(date.parse());
+
+        if date < threshold {
+            continue;
+        }
+
+        let id = try!(id.parse());
+
+        if table.contains_key(&id) {
+            debug_assert_eq!(table[&id], {
+                let mut new = table[&id].clone();
+                new.date = date;
+                new
+            });
+        } else {
+            new_games.push(id);
+        }
+    }
+
+    Ok(new_games)
 }
