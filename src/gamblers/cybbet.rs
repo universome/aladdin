@@ -1,8 +1,9 @@
 #![allow(non_snake_case)]
 
+use std::io::Read;
 use std::collections::HashMap;
 use kuchiki::{self, NodeRef};
-use kuchiki::traits::ParserExt;
+use kuchiki::traits::{TendrilSink, ParserExt};
 use serde_json as json;
 use time;
 
@@ -97,11 +98,16 @@ impl Gambler for CybBet {
                 let new_games = try!(collect_new_games(&table, games));
 
                 for game_id in new_games {
-                    let response = try!(self.session.post_form("/games/addNewGame", &[
+                    let mut response = try!(self.session.post_form("/games/addNewGame", &[
                         ("idGame", &format!("{}", game_id))
                     ]));
 
-                    let html = try!(kuchiki::parse_html().from_http(response));
+                    // Fix invalid markup to parse this bullshit below.
+                    let mut template = String::from("<table>");
+                    try!(response.read_to_string(&mut template));
+                    template.push_str("</table>");
+
+                    let html = kuchiki::parse_html().one(template);
 
                     let mut offers = try!(extract_offers(html));
 
