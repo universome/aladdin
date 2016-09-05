@@ -51,16 +51,16 @@ impl Gambler for CybBet {
         }
 
         for _ in Periodic::new(PERIOD) {
+            // Collect all active offers and send them.
             let request = table.values().map(Game::from).collect::<Vec<_>>();
 
-            println!(">> {}", json::to_string(&request).unwrap());
-
-            let response = try!(self.session.post_form("/games/getCurrentKoef", &[
+            let mut response = try!(self.session.post_form("/games/getCurrentKoef", &[
                 ("request", &try!(json::to_string(&request)))
             ]));
 
             let koef = try!(json::from_reader::<_, CurrentKoef>(response));
 
+            // Update odds.
             if let Some(games) = koef.games {
                 for (id, coef_1, coef_2, coef_draw) in games {
                     if !table.contains_key(&id) {
@@ -81,8 +81,9 @@ impl Gambler for CybBet {
                 }
             }
 
+            // Remove started games.
             if let Some(games) = koef.gamesStarted {
-                for (id,) in games {
+                for (id, _) in games {
                     let id = try!(id.parse());
 
                     if let Some(offer) = table.remove(&id) {
@@ -91,6 +92,7 @@ impl Gambler for CybBet {
                 }
             }
 
+            // Update time of games and request additional info about new games.
             if let Some(games) = koef.gamesStartTime {
                 let new_games = try!(collect_new_games(&table, games));
 
@@ -100,8 +102,6 @@ impl Gambler for CybBet {
                     ]));
 
                     let html = try!(kuchiki::parse_html().from_http(response));
-
-                    println!("{}", html.to_string());
 
                     let mut offers = try!(extract_offers(html));
 
@@ -122,15 +122,14 @@ impl Gambler for CybBet {
     }
 }
 
+type Trash = json::Value;
+
 #[derive(Deserialize)]
 struct CurrentKoef {
     games: Option<Vec<(u32, f64, f64, f64)>>,
-    gamesStartTime: Option<Vec<(String, String)>>,
-    gamesStarted: Option<Vec<(String,)>>
+    gamesStarted: Option<Vec<(String, Trash)>>,
+    gamesStartTime: Option<Vec<(String, String, Trash, Trash, Trash)>>
 }
-
-// /games/addNewGame  idGame
-// /games/
 
 #[derive(Serialize)]
 struct Game {
@@ -218,11 +217,13 @@ fn extract_offers(html: NodeRef) -> Result<Vec<Offer>> {
     Ok(offers)
 }
 
-fn collect_new_games(table: &HashMap<u32, Offer>, games: Vec<(String, String)>) -> Result<Vec<u32>> {
+fn collect_new_games(table: &HashMap<u32, Offer>,
+                     games: Vec<(String, String, Trash, Trash, Trash)>) -> Result<Vec<u32>>
+{
     let mut new_games = Vec::new();
     let mut threshold = time::get_time().sec as u32 + PERIOD;
 
-    for (id, date) in games {
+    for (id, date, _, _, _) in games {
         let date = try!(date.parse());
 
         if date < threshold {
