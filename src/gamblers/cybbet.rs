@@ -3,7 +3,7 @@
 use std::io::Read;
 use std::collections::HashMap;
 use kuchiki::{self, NodeRef};
-use kuchiki::traits::{TendrilSink, ParserExt};
+use kuchiki::traits::TendrilSink;
 use serde_json as json;
 use time;
 
@@ -33,11 +33,22 @@ impl CybBet {
 
 impl Gambler for CybBet {
     fn authorize(&self, username: &str, password: &str) -> Result<()> {
-        unimplemented!();
+        self.session.post_form("/user/login", &[
+            ("LoginForm[username]", username),
+            ("LoginForm[password]", password),
+            ("signin_submit", "Sign In")
+        ]).map(|_| ())
     }
 
     fn check_balance(&self) -> Result<Currency> {
-        unimplemented!();
+        let html = try!(self.session.get_html("/account/usercash/UpdateBlockMainUserInfo"));
+
+        let text = try!(html.query(r#"a[href="/account/usercash/cash"]"#)).text_contents();
+        let on_invalid_cash = || format!("Invalid cash: \"{}\"", text);
+        let cash_str = try!(text.split(' ').next().ok_or_else(on_invalid_cash));
+        let cash = try!(cash_str.parse::<f64>());
+
+        Ok(Currency::from(cash))
     }
 
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
@@ -55,7 +66,7 @@ impl Gambler for CybBet {
             // Collect all active offers and send them.
             let request = table.values().map(Game::from).collect::<Vec<_>>();
 
-            let mut response = try!(self.session.post_form("/games/getCurrentKoef", &[
+            let response = try!(self.session.post_form("/games/getCurrentKoef", &[
                 ("request", &try!(json::to_string(&request)))
             ]));
 
@@ -227,7 +238,7 @@ fn collect_new_games(table: &HashMap<u32, Offer>,
                      games: Vec<(String, String, Trash, Trash, Trash)>) -> Result<Vec<u32>>
 {
     let mut new_games = Vec::new();
-    let mut threshold = time::get_time().sec as u32 + PERIOD;
+    let threshold = time::get_time().sec as u32 + PERIOD;
 
     for (id, date, _, _, _) in games {
         let date = try!(date.parse());
