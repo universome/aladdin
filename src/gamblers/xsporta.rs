@@ -48,7 +48,8 @@ impl Gambler for XBet {
 
     fn check_balance(&self) -> Result<Currency> {
         let text = try!(self.session.get_text("/en/user/checkUserBalance.php"));
-        let balance_str = try!(text.split(' ').next().ok_or("Invalid balance response"));
+        let on_invalid_balance = || format!("Invalid balance: {}", text);
+        let balance_str = try!(text.split(' ').next().ok_or_else(on_invalid_balance));
         let balance = try!(balance_str.parse::<f64>());
 
         Ok(Currency::from(balance))
@@ -58,7 +59,7 @@ impl Gambler for XBet {
         let path = "/LineFeed/Get1x2?sportId=40&count=50&cnt=10&lng=en";
         let mut map = HashMap::new();
 
-        // The site uses 1-mitute period, but for us it's too long.
+        // The site uses 1-minute period, but for us it's too long.
         for _ in Periodic::new(15) {
             let message = try!(self.session.get_json::<Message>(path));
             let offers = try!(grab_offers(message));

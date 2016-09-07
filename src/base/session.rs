@@ -2,7 +2,7 @@ use std::io::Read;
 use std::time::Duration;
 use std::sync::Mutex;
 use url::form_urlencoded::Serializer as UrlSerializer;
-use hyper::client::{Client, Response};
+use hyper::client::{Client, RedirectPolicy, Response};
 use hyper::header::{Headers, SetCookie, Cookie, UserAgent, Accept, ContentType, qitem};
 use kuchiki;
 use kuchiki::NodeRef;
@@ -28,6 +28,7 @@ impl Session {
         let mut client = Client::new();
         client.set_read_timeout(Some(Duration::from_secs(25)));
         client.set_write_timeout(Some(Duration::from_secs(25)));
+        client.set_redirect_policy(RedirectPolicy::FollowNone);
 
         Session {
             client: client,
@@ -115,7 +116,7 @@ impl Session {
 
         let response = try!(builder.headers(headers).send());
 
-        if !response.status.is_success() {
+        if !response.status.is_success() && !response.status.is_redirection() {
             return Err(From::from(response.status));
         }
 
