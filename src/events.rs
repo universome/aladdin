@@ -14,7 +14,7 @@ pub struct Offer {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Outcome(pub String, pub f64);
 
-pub static DRAW: &'static str = "(draw)";
+pub static DRAW: &str = "(draw)";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Kind {
