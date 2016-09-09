@@ -5,7 +5,7 @@ use crossbeam;
 use base::config::CONFIG;
 use events::Offer;
 use gamblers::{self, Gambler};
-use opportunity::{self, Strategy};
+use opportunity::{self, Strategy, MarkedOutcome};
 
 struct Bookie {
     host: String,
@@ -150,16 +150,28 @@ fn realize_event(event: &Event) {
         return;
     }
 
+    let mut table = Vec::with_capacity(event.len());
+
     info!("Checking event:");
 
     for &MarkedOffer(bookie, ref offer) in event {
         info!("    {} by {}", offer, bookie.host);
+        table.push(offer.outcomes.as_slice());
     }
 
-    let outcomes = event.into_iter().map(|o| o.1.outcomes.as_slice());
-    let opp = opportunity::find_best(outcomes, Strategy::Unbiased);
+    let coef = opportunity::calc_coef(&table);
 
-    if let Some(opp) = opp {
-        info!("  => There is an opportunity: {:?}", opp);
+    if coef < 1. {
+        let outcomes = opportunity::find_best(&table, Strategy::Unbiased);
+
+        info!("  Opportunity exists (coef = {}), unbiased strategy:", coef);
+
+        for MarkedOutcome { index, outcome, rate, profit } in outcomes {
+            let host = &event[index].0.host;
+            info!("    {} on {} by {} (rate: {}, profit: {})",
+                  outcome.0, outcome.1, host, rate, profit);
+        }
+    } else {
+        info!("  Opportunity doesn't exist (coef = {})", coef);
     }
 }
