@@ -159,12 +159,12 @@ fn realize_event(event: &Event) {
         table.push(offer.outcomes.as_slice());
     }
 
-    let coef = opportunity::calc_coef(&table);
+    let margin = opportunity::calc_margin(&table);
 
-    if coef < 1. {
+    if margin < 1. {
         let outcomes = opportunity::find_best(&table, Strategy::Unbiased);
 
-        info!("  Opportunity exists (coef = {}), unbiased strategy:", coef);
+        info!("  Opportunity exists (margin = {}), unbiased strategy:", margin);
 
         for MarkedOutcome { index, outcome, rate, profit } in outcomes {
             let host = &event[index].0.host;
@@ -172,6 +172,6 @@ fn realize_event(event: &Event) {
                   outcome.0, outcome.1, host, rate, profit);
         }
     } else {
-        info!("  Opportunity doesn't exist (coef = {})", coef);
+        info!("  Opportunity doesn't exist (margin = {})", margin);
     }
 }
