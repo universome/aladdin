@@ -164,14 +164,14 @@ fn realize_event(event: &Event) {
     if margin < 1. {
         let outcomes = opportunity::find_best(&table, Strategy::Unbiased);
 
-        info!("  Opportunity exists (margin = {}), unbiased strategy:", margin);
+        info!("  Opportunity exists (effective margin: {:.2}), unbiased strategy:", margin);
 
         for MarkedOutcome { index, outcome, rate, profit } in outcomes {
             let host = &event[index].0.host;
-            info!("    {} on {} by {} (rate: {}, profit: {})",
-                  outcome.0, outcome.1, host, rate, profit);
+            info!("    Place {:.2} on {} by {} (coef: x{:.2}, profit: {:+.0}%)",
+                  rate, outcome.0, host, outcome.1, profit * 100.);
         }
     } else {
-        info!("  Opportunity doesn't exist (margin = {})", margin);
+        info!("  Opportunity doesn't exist (effective margin: {:.2})", margin);
     }
 }
