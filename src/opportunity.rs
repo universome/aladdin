@@ -11,17 +11,10 @@ pub struct MarkedOutcome<'a> {
     pub profit: f64
 }
 
-// Unfortunately, rust doesn't support variable-length array.
-// So, we hardcode the maximum length.
-const ROW_COUNT_LIMIT: usize = 3;
-
 pub fn calc_margin(table: &[Vec<&Outcome>]) -> f64 {
     debug_assert!(table.len() > 0);
 
-    let row_count = table[0].len();
-    debug_assert!(0 < row_count && row_count <= ROW_COUNT_LIMIT);
-
-    let line = &mut [0.; ROW_COUNT_LIMIT][0..row_count];
+    let mut line = vec![0.; table[0].len()];
 
     for column in table {
         for (best, outcome) in line.iter_mut().zip(column.iter()) {
