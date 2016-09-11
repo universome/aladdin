@@ -5,7 +5,7 @@ use self::Strategy::*;
 pub enum Strategy { Unbiased, Favorite, Rebel }
 
 pub struct MarkedOutcome<'a> {
-    pub index: usize,
+    pub market: usize,
     pub outcome: &'a Outcome,
     pub rate: f64,
     pub profit: f64
@@ -15,7 +15,7 @@ pub struct MarkedOutcome<'a> {
 // So, we hardcode the maximum length.
 const ROW_COUNT_LIMIT: usize = 3;
 
-pub fn calc_margin(table: &[&[Outcome]]) -> f64 {
+pub fn calc_margin(table: &[Vec<&Outcome>]) -> f64 {
     debug_assert!(table.len() > 0);
 
     let row_count = table[0].len();
@@ -34,7 +34,7 @@ pub fn calc_margin(table: &[&[Outcome]]) -> f64 {
     line.iter().map(|x| 1. / x).sum()
 }
 
-pub fn find_best<'a>(table: &[&'a [Outcome]], strategy: Strategy) -> Vec<MarkedOutcome<'a>> {
+pub fn find_best<'a>(table: &[Vec<&'a Outcome>], strategy: Strategy) -> Vec<MarkedOutcome<'a>> {
     debug_assert!(table.len() > 0);
     debug_assert!(table[0].len() > 0);
 
@@ -42,7 +42,7 @@ pub fn find_best<'a>(table: &[&'a [Outcome]], strategy: Strategy) -> Vec<MarkedO
 
     let mut line = table_iter.next().unwrap().iter()
         .map(|outcome| MarkedOutcome {
-            index: 0,
+            market: 0,
             outcome: outcome,
             rate: 0.,
             profit: 0.
@@ -54,7 +54,7 @@ pub fn find_best<'a>(table: &[&'a [Outcome]], strategy: Strategy) -> Vec<MarkedO
 
         for (best, outcome) in line.iter_mut().zip(outcomes.iter()) {
             if best.outcome.1 < outcome.1 {
-                best.index = index + 1;
+                best.market = index + 1;
                 best.outcome = outcome;
             }
         }
@@ -102,83 +102,98 @@ macro_rules! assert_approx_eq {
 
 #[test]
 fn test_calc_margin_single() {
-    let table = [
-        &[Outcome("X".to_owned(), 2.3), Outcome("Y".to_owned(), 1.35)] as &[Outcome]
-    ];
+    let market = [Outcome("X".to_owned(), 2.3), Outcome("Y".to_owned(), 1.35)];
+    let table = [market.iter().collect()];
 
-    assert_approx_eq!(calc_margin(&table as &[&[Outcome]]), 1.18);
+    assert_approx_eq!(calc_margin(&table), 1.18);
 }
 
 #[test]
 fn test_calc_margin_multiple() {
+    let marked_1 = [Outcome("X".to_owned(), 2.3), Outcome("Y".to_owned(), 1.05)];
+    let marked_2 = [Outcome("X".to_owned(), 1.2), Outcome("Y".to_owned(), 1.05)];
+    let marked_3 = [Outcome("X".to_owned(), 1.3), Outcome("Y".to_owned(), 1.35)];
+
     let table = [
-        &[Outcome("X".to_owned(), 2.3), Outcome("Y".to_owned(), 1.05)] as &[Outcome],
-        &[Outcome("X".to_owned(), 1.2), Outcome("Y".to_owned(), 1.05)] as &[Outcome],
-        &[Outcome("X".to_owned(), 1.3), Outcome("Y".to_owned(), 1.35)] as &[Outcome]
+        marked_1.iter().collect(),
+        marked_2.iter().collect(),
+        marked_3.iter().collect()
     ];
 
-    assert_approx_eq!(calc_margin(&table as &[&[Outcome]]), 1.18);
+    assert_approx_eq!(calc_margin(&table), 1.18);
 }
 
 #[test]
 fn test_find_best_unbiased() {
+    let marked_1 = [Outcome("X".to_owned(), 2.3), Outcome("Y".to_owned(), 1.2)];
+    let marked_2 = [Outcome("X".to_owned(), 1.3), Outcome("Y".to_owned(), 1.1)];
+    let marked_3 = [Outcome("X".to_owned(), 1.1), Outcome("Y".to_owned(), 3.3)];
+
     let table = [
-        &[Outcome("X".to_owned(), 2.3), Outcome("Y".to_owned(), 1.2)] as &[Outcome],
-        &[Outcome("X".to_owned(), 1.3), Outcome("Y".to_owned(), 1.1)] as &[Outcome],
-        &[Outcome("X".to_owned(), 1.1), Outcome("Y".to_owned(), 3.3)] as &[Outcome]
+        marked_1.iter().collect(),
+        marked_2.iter().collect(),
+        marked_3.iter().collect()
     ];
 
     let opp = find_best(&table, Unbiased);
 
     assert_eq!(opp.len(), 2);
     assert_eq!(opp[0].outcome.0, "X");
-    assert_eq!(opp[0].index, 0);
+    assert_eq!(opp[0].market, 0);
     assert_approx_eq!(opp[0].rate, 0.59);
     assert_approx_eq!(opp[0].profit, 0.36);
     assert_eq!(opp[1].outcome.0, "Y");
-    assert_eq!(opp[1].index, 2);
+    assert_eq!(opp[1].market, 2);
     assert_approx_eq!(opp[1].rate, 0.41);
     assert_approx_eq!(opp[1].profit, 0.36);
 }
 
 #[test]
 fn test_find_best_favorite() {
+    let marked_1 = [Outcome("X".to_owned(), 2.3), Outcome("Y".to_owned(), 1.2)];
+    let marked_2 = [Outcome("X".to_owned(), 1.3), Outcome("Y".to_owned(), 1.1)];
+    let marked_3 = [Outcome("X".to_owned(), 1.1), Outcome("Y".to_owned(), 3.3)];
+
     let table = [
-        &[Outcome("X".to_owned(), 2.3), Outcome("Y".to_owned(), 1.2)] as &[Outcome],
-        &[Outcome("X".to_owned(), 1.3), Outcome("Y".to_owned(), 1.1)] as &[Outcome],
-        &[Outcome("X".to_owned(), 1.1), Outcome("Y".to_owned(), 3.3)] as &[Outcome]
+        marked_1.iter().collect(),
+        marked_2.iter().collect(),
+        marked_3.iter().collect()
     ];
 
     let opp = find_best(&table, Favorite);
 
     assert_eq!(opp.len(), 2);
     assert_eq!(opp[0].outcome.0, "X");
-    assert_eq!(opp[0].index, 0);
+    assert_eq!(opp[0].market, 0);
     assert_approx_eq!(opp[0].rate, 0.7);
     assert_approx_eq!(opp[0].profit, 0.6);
     assert_eq!(opp[1].outcome.0, "Y");
-    assert_eq!(opp[1].index, 2);
+    assert_eq!(opp[1].market, 2);
     assert_approx_eq!(opp[1].rate, 0.3);
     assert_approx_eq!(opp[1].profit, 0.);
 }
 
 #[test]
 fn test_find_best_rebel() {
+    let marked_1 = [Outcome("X".to_owned(), 2.3), Outcome("Y".to_owned(), 1.2)];
+    let marked_2 = [Outcome("X".to_owned(), 1.3), Outcome("Y".to_owned(), 1.1)];
+    let marked_3 = [Outcome("X".to_owned(), 1.1), Outcome("Y".to_owned(), 3.3)];
+
     let table = [
-        &[Outcome("X".to_owned(), 2.3), Outcome("Y".to_owned(), 1.2)] as &[Outcome],
-        &[Outcome("X".to_owned(), 1.3), Outcome("Y".to_owned(), 1.1)] as &[Outcome],
-        &[Outcome("X".to_owned(), 1.1), Outcome("Y".to_owned(), 3.3)] as &[Outcome]
+        marked_1.iter().collect(),
+        marked_2.iter().collect(),
+        marked_3.iter().collect()
     ];
 
     let opp = find_best(&table, Rebel);
 
     assert_eq!(opp.len(), 2);
     assert_eq!(opp[0].outcome.0, "X");
-    assert_eq!(opp[0].index, 0);
+    assert_eq!(opp[0].market, 0);
     assert_approx_eq!(opp[0].rate, 0.43);
     assert_approx_eq!(opp[0].profit, 0.);
     assert_eq!(opp[1].outcome.0, "Y");
-    assert_eq!(opp[1].index, 2);
+    assert_eq!(opp[1].market, 2);
     assert_approx_eq!(opp[1].rate, 0.57);
     assert_approx_eq!(opp[1].profit, 0.86);
 }
