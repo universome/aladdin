@@ -74,6 +74,18 @@ impl Session {
         Ok(try!(json::from_reader(response)))
     }
 
+    pub fn get_raw_json(&self, path: &str) -> Result<String> {
+        let mut headers = Headers::new();
+        headers.set(Accept(vec![qitem(mime!(Application/Json))]));
+
+        let mut string = String::new();
+        let mut response = try!(self.get(path, headers));
+
+        try!(response.read_to_string(&mut string));
+
+        Ok(string)
+    }
+
     pub fn post_form(&self, path: &str, data: &[(&str, &str)]) -> Result<Response> {
         let encoded = UrlSerializer::new(String::new())
             .extend_pairs(data)
