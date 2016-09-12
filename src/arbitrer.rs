@@ -3,9 +3,9 @@ use std::sync::mpsc::{self, Sender, Receiver};
 use crossbeam;
 
 use base::config::CONFIG;
-use events::Offer;
+use events::{Offer, Outcome};
 use gamblers::{self, Gambler};
-use opportunity::{self, Strategy};
+use opportunity::{self, Strategy, MarkedOutcome};
 
 struct Bookie {
     host: String,
@@ -150,16 +150,39 @@ fn realize_event(event: &Event) {
         return;
     }
 
+    let mut table = Vec::with_capacity(event.len());
+
+    for marked in event {
+        // We assume that sorting by coefs is reliable way to collate outcomes.
+        let marked = sort_outcomes_by_coef(&marked.1.outcomes);
+        table.push(marked);
+    }
+
     info!("Checking event:");
 
     for &MarkedOffer(bookie, ref offer) in event {
         info!("    {} by {}", offer, bookie.host);
     }
 
-    let outcomes = event.into_iter().map(|o| o.1.outcomes.as_slice());
-    let opp = opportunity::find_best(outcomes, Strategy::Unbiased);
+    let margin = opportunity::calc_margin(&table);
 
-    if let Some(opp) = opp {
-        info!("  => There is an opportunity: {:?}", opp);
+    if margin < 1. {
+        let outcomes = opportunity::find_best(&table, Strategy::Unbiased);
+
+        info!("  Opportunity exists (effective margin: {:.2}), unbiased strategy:", margin);
+
+        for MarkedOutcome { market, outcome, rate, profit } in outcomes {
+            let host = &event[market].0.host;
+            info!("    Place {:.2} on {} by {} (coef: x{:.2}, profit: {:+.1}%)",
+                  rate, outcome.0, host, outcome.1, profit * 100.);
+        }
+    } else {
+        info!("  Opportunity doesn't exist (effective margin: {:.2})", margin);
     }
+}
+
+fn sort_outcomes_by_coef(outcomes: &[Outcome]) -> Vec<&Outcome> {
+    let mut result = outcomes.iter().collect::<Vec<_>>();
+    result.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    result
 }
