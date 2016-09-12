@@ -1,16 +1,16 @@
 #![allow(non_snake_case)]
 
-use time;
-use base::error::Result;
-use std::result::Result as stdResult;
+use std::result::Result as SessiontdResult;
 use std::collections::{HashMap, HashSet};
+use serde::{Deserialize, Deserializer};
+use serde_json as json;
+use time;
 use url::percent_encoding::{utf8_percent_encode, USERINFO_ENCODE_SET};
-use serde::{Deserialize, Deserializer, de};
-use serde_json;
 
-use base::timers::Periodic;
-use base::session::Session;
 use base::currency::Currency;
+use base::timers::Periodic;
+use base::error::Result;
+use base::session::Session;
 use gamblers::Gambler;
 use events::{Offer, Outcome, Kind};
 use events::kinds::*;
@@ -22,7 +22,6 @@ pub struct VitalBet {
 }
 
 define_encode_set! {
-    // TODO(universome): Is it possible to make it not public?
     pub VITALBET_ENCODE_SET = [USERINFO_ENCODE_SET] | {'+', '-'}
 }
 
@@ -34,22 +33,22 @@ impl VitalBet {
     }
 
     // TODO(universome): Pass timestamps, like they do.
-    fn generate_polling_path(&self) -> String {
+    fn generate_polling_path(&self) -> Result<String> {
         // First, we should get connection token.
         let auth_path = concat!("/signalr/negotiate?transport=longPolling&clientProtocol=1.5",
                                 "&connectionData=%5B%7B%22name%22%3A%22sporttypehub%22%7D%5D");
-        let response = self.session.get_json::<PollingAuthResponse>(auth_path);
-        let ConnectionToken = response.unwrap().ConnectionToken;
-        let ConnectionToken = utf8_percent_encode(&ConnectionToken, VITALBET_ENCODE_SET).collect::<String>();
+        let response = try!(self.session.get_json::<PollingAuthResponse>(auth_path));
+        let token = response.ConnectionToken;
+        let token = utf8_percent_encode(&token, VITALBET_ENCODE_SET).collect::<String>();
 
         // We should notify them, that we are starting polling (because they do it too).
-        self.session.get_raw_json(&format!(concat!("/signalr/start?transport=longPolling",
+        try!(self.session.get_raw_json(&format!(concat!("/signalr/start?transport=longPolling",
                                  "&connectionData=%5B%7B%22name%22%3A%22sporttypehub%22%7D%5D",
-                                 "clientProtocol=1.5&connectionToken={}"), ConnectionToken));
+                                 "clientProtocol=1.5&connectionToken={}"), token)));
 
-        format!(concat!("/signalr/poll?transport=longPolling&clientProtocol=1.5",
+        Ok(format!(concat!("/signalr/poll?transport=longPolling&clientProtocol=1.5",
                         "&connectionData=%5B%7B%22name%22%3A%22sporttypehub%22%7D%5D",
-                        "&connectionToken={}"), ConnectionToken)
+                        "&connectionToken={}"), token))
     }
 }
 
@@ -84,7 +83,6 @@ impl Gambler for VitalBet {
         try!(self.session.get_html("/"));
 
         // Now we have some cookie! Let's get initial offers.
-        // TODO(universome): We should get offers from other sports too, not only Dota 2.
         let path = "/api/sportmatch/Get?sportID=2357";
         let initial_matches = try!(self.session.get_json::<Vec<Match>>(path));
 
@@ -94,7 +92,7 @@ impl Gambler for VitalBet {
 
                 cb(offer, true);
 
-                if let Some(ref odds) = match_.odds {
+                if let Some(ref odds) = match_.PreviewOdds {
                     for odd in odds {
                         state.odds_to_matches_ids.insert(odd.ID, match_.ID);
                     }
@@ -104,17 +102,14 @@ impl Gambler for VitalBet {
             }
         }
 
-        let polling_path = self.generate_polling_path();
+        let polling_path = try!(self.generate_polling_path());
 
         loop {
             let updates: PollingResponse = try!(self.session.get_json(&polling_path));
             
-            apply_updates(&mut state, updates.M);
-
-            provide_offers(&mut state, cb);
+            try!(apply_updates(&mut state, updates.M));
+            try!(provide_offers(&mut state, cb));
         }
-
-        Ok(())
     }
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Result<()> {
@@ -148,9 +143,8 @@ struct Match {
     ID: u32,
     IsSuspended: bool,
     DateOfMatch: String,
-    
-    #[serde(rename = "PreviewOdds")]
-    odds: Option<Vec<Odd>>,
+
+    PreviewOdds: Option<Vec<Odd>>,
     IsActive: Option<bool>,
     IsFinished: Option<bool>,
     Category: Option<Category>
@@ -189,25 +183,21 @@ enum PollingMessage {
 }
 
 impl Deserialize for PollingMessage {
-    fn deserialize<D>(d: &mut D) -> stdResult<PM, D::Error> where D: Deserializer {
-        let result: serde_json::Value = try!(Deserialize::deserialize(d));
+    fn deserialize<D>(d: &mut D) -> SessiontdResult<PM, D::Error> where D: Deserializer {
+        let result: json::Value = try!(Deserialize::deserialize(d));
 
-        if result.find("M").is_none() {
-            return Ok(PM::UnsupportedUpdate(UnsupportedUpdate("even no M".to_string())));
+        if result.find("M").map_or(false, json::Value::is_string) {
+            return Ok(PM::UnsupportedUpdate(UnsupportedUpdate("Even no M".to_string())));
         }
 
-        if result.find("M").unwrap().as_str().is_none() {
-            return Ok(PM::UnsupportedUpdate(UnsupportedUpdate("even no M".to_string())));
-        }
-
-        let update_type = result.find("M").unwrap().as_str().unwrap().to_string();
+        let update_type = result.find("M").unwrap().as_str().unwrap_or("No update type").to_string();
 
         Ok(match update_type.as_ref() {
-            "oddsUpdated" => PM::OddsUpdateMessage( serde_json::from_value(result).unwrap() ),
-            "prematchOddsUpdated" => PM::PrematchOddsUpdateMessage( serde_json::from_value(result).unwrap() ),
-            "matchesUpdated" => PM::MatchesUpdateMessage( serde_json::from_value(result).unwrap() ),
-            "prematchMatchesUpdated" => PM::PrematchMatchesUpdateMessage( serde_json::from_value(result).unwrap() ),
-            _ => PM::UnsupportedUpdate( UnsupportedUpdate(update_type.to_string()))
+            "oddsUpdated" => PM::OddsUpdateMessage( json::from_value(result).unwrap() ),
+            "prematchOddsUpdated" => PM::PrematchOddsUpdateMessage( json::from_value(result).unwrap() ),
+            "matchesUpdated" => PM::MatchesUpdateMessage( json::from_value(result).unwrap() ),
+            "prematchMatchesUpdated" => PM::PrematchMatchesUpdateMessage( json::from_value(result).unwrap() ),
+            _ => PM::UnsupportedUpdate( UnsupportedUpdate(update_type))
         })
     }
 }
@@ -265,7 +255,7 @@ fn convert_prematch_match_update(update: PrematchMatchUpdate) -> Match {
         DateOfMatch: time::strftime("%Y-%m-%dT%H:%M:%S", &tm).unwrap(),
 
         IsFinished: None,
-        odds: None,
+        PreviewOdds: None,
         IsActive: None,
         Category: None
     }
@@ -278,7 +268,7 @@ fn convert_match_into_offer(match_: &Match) -> Result<Option<Offer>> {
         return Ok(None);
     }
 
-    let odds = match match_.odds {
+    let odds = match match_.PreviewOdds {
         Some(ref odds) =>
             odds.iter()
                 .filter(|odd| !odd.IsSuspended)
@@ -306,50 +296,51 @@ fn get_kind_from_match(match_: &Match) -> Option<Kind> {
         return None;
     }
 
-    // TODO(universome): find out new kinds
-    match match_.Category.as_ref().unwrap().ID {
-        3683 => Some(Kind::CounterStrike(CounterStrike::Series)),
-        3693 => Some(Kind::Dota2(Dota2::Series)),
-        5791 => Some(Kind::Overwatch(Overwatch::Series)),
-        3578 => Some(Kind::LeagueOfLegends(LeagueOfLegends::Series)),
-        3600 => Some(Kind::Smite(Smite::Series)),
-        3704 => Some(Kind::StarCraft2(StarCraft2::Series)),
-        3601 => Some(Kind::WorldOfTanks(WorldOfTanks::Series)),
-        6241 => Some(Kind::CrossFire(CrossFire::Series)),
+    Some(match match_.Category.as_ref().unwrap().ID {
+        3683 => Kind::CounterStrike(CounterStrike::Series),
+        3693 => Kind::Dota2(Dota2::Series),
+        5791 => Kind::Overwatch(Overwatch::Series),
+        3578 => Kind::LeagueOfLegends(LeagueOfLegends::Series),
+        3600 => Kind::Smite(Smite::Series),
+        3704 => Kind::StarCraft2(StarCraft2::Series),
+        3601 => Kind::WorldOfTanks(WorldOfTanks::Series),
+        6241 => Kind::CrossFire(CrossFire::Series),
         _ => {
-            debug!("New category in vitalbet esports: {:?}", match_.Category);
-            
-            None
+            warn!("New category in vitalbet esports: {:?}", match_.Category);
+
+            return None
         }
-    }
+    })
 }
 
-fn apply_updates(state: &mut State, messages: Vec<PollingMessage>) {
-    for msg in messages.into_iter() {
+fn apply_updates(state: &mut State, messages: Vec<PollingMessage>) -> Result<()> {
+    for msg in messages {
         match msg {
             PM::OddsUpdateMessage(ref msg) => {
                 for odd_update in msg.A.iter().flat_map(|updates| updates.into_iter()) {
-                    apply_odd_update(odd_update, state);
+                    try!(apply_odd_update(odd_update, state));
                 }
             },
             PM::PrematchOddsUpdateMessage(ref msg) => {
                 for odd_update in msg.A.iter().flat_map(|updates| updates.iter()) {
-                    apply_odd_update(&convert_prematch_odd_update(odd_update), state);
+                    try!(apply_odd_update(&convert_prematch_odd_update(odd_update), state));
                 }
             },
             PM::MatchesUpdateMessage(msg) => {
                 for match_update in msg.A.into_iter().flat_map(|updates| updates.into_iter()) {
-                    apply_match_update(match_update, state);
+                    try!(apply_match_update(match_update, state));
                 }
             },
             PM::PrematchMatchesUpdateMessage(msg) => {
                 for match_update in msg.A.into_iter().flat_map(|updates| updates.into_iter()) {
-                    apply_match_update(convert_prematch_match_update(match_update), state);
+                    try!(apply_match_update(convert_prematch_match_update(match_update), state));
                 }
             },
             _ => {}
         }
     }
+
+    Ok(())
 }
 
 fn apply_odd_update(odd_update: &OddUpdate, state: &mut State) -> Result<()> {
@@ -358,7 +349,7 @@ fn apply_odd_update(odd_update: &OddUpdate, state: &mut State) -> Result<()> {
         return Ok(());
     }
 
-    let match_id = state.odds_to_matches_ids.get(&odd_update.ID).unwrap();
+    let match_id = state.odds_to_matches_ids[&odd_update.ID];
 
     if !state.matches.contains_key(&match_id) {
         // This is an update for some match, which we do not track.
@@ -368,7 +359,7 @@ fn apply_odd_update(odd_update: &OddUpdate, state: &mut State) -> Result<()> {
     let match_ = state.matches.get_mut(&match_id).unwrap();
 
     // Find the odd we want to update and update it.
-    if let Some(ref mut odds) = match_.odds {
+    if let Some(ref mut odds) = match_.PreviewOdds {
         for odd in odds {
             if odd.ID == odd_update.ID {
                 odd.Value = odd_update.Value;
@@ -376,11 +367,7 @@ fn apply_odd_update(odd_update: &OddUpdate, state: &mut State) -> Result<()> {
             }
         }
 
-        if !state.changed_matches.contains(&match_.ID) {
-            state.changed_matches.insert(match_.ID);
-        }
-    } else {
-        unreachable!();
+        state.changed_matches.insert(match_.ID);
     }
 
     Ok(())
@@ -395,9 +382,10 @@ fn apply_match_update(match_update: Match, state: &mut State) -> Result<()> {
         match_.IsSuspended = match_update.IsSuspended;
         match_.DateOfMatch = match_update.DateOfMatch;
 
-        if let Some(odds) = match_update.odds {
-            debug!("We have odds matchesUpdated (!!!): {:?}", odds);
-            match_.odds = Some(odds);
+        if let Some(odds) = match_update.PreviewOdds {
+            warn!("We have odds in matchesUpdated (!!!): {:?}", odds);
+
+            match_.PreviewOdds = Some(odds);
         }
     } else {
         state.matches.insert(match_update.ID, match_update);
@@ -416,9 +404,9 @@ fn provide_offers(state: &mut State, cb: &Fn(Offer, bool)) -> Result<()> {
             cb(offer.clone(), false);
         }
 
-        let IsFinished = state.matches[&updated_match_id].IsFinished.unwrap_or(false);
+        let is_finished = state.matches[&updated_match_id].IsFinished.unwrap_or(false);
         
-        if IsFinished {
+        if is_finished {
             debug!("Match is finished: {:?}", state.matches[&updated_match_id]);
 
             state.matches.remove(&updated_match_id);
