@@ -36,7 +36,7 @@ pub fn run() {
 }
 
 fn init_bookies() -> Vec<Bookie> {
-    let mut bookies = vec![];
+    let mut bookies = Vec::new();
     let array = CONFIG.lookup("bookies").unwrap().as_slice().unwrap();
 
     for item in array {
@@ -133,9 +133,19 @@ fn update_offer<'i>(events: &mut HashMap<Offer, Event<'i>>, marked: MarkedOffer<
             .position(|stored| stored.0 as *const _ == marked.0 as *const _);
 
         if let Some(index) = index {
+            if marked.1.outcomes.len() != event[index].1.outcomes.len() {
+                error!("{} by {} is NOT updated: incorrect dimension", marked.1, marked.0.host);
+                return;
+            }
+
             debug!("{} by {} is updated", marked.1, marked.0.host);
             event[index] = marked;
         } else {
+            if marked.1.outcomes.len() != event[0].1.outcomes.len() {
+                error!("{} by {} is NOT added: incorrect dimension", marked.1, marked.0.host);
+                return;
+            }
+
             debug!("{} by {} is added", marked.1, marked.0.host);
             event.push(marked);
         }
