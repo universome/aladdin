@@ -19,14 +19,19 @@ extern crate serde_json;
 extern crate toml;
 extern crate crossbeam;
 
+use std::thread;
+
 mod base;
 mod events;
 mod gamblers;
 mod opportunity;
 mod arbitrer;
+mod server;
 
 fn main() {
     base::logger::init().unwrap();
+
+    thread::spawn(server::run);
 
     // TODO(loyd): make CLI.
     arbitrer::run();
