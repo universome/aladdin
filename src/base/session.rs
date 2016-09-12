@@ -74,7 +74,7 @@ impl Session {
         Ok(try!(json::from_reader(response)))
     }
 
-    pub fn get_raw_json(&self, path: &str) -> Result<String> {
+    pub fn get_raw_json(&self, path: &str) -> Result<json::Value> {
         let mut headers = Headers::new();
         headers.set(Accept(vec![qitem(mime!(Application/Json))]));
 
@@ -83,7 +83,7 @@ impl Session {
 
         try!(response.read_to_string(&mut string));
 
-        Ok(string)
+        Ok(try!(json::from_str(&string)))
     }
 
     pub fn post_form(&self, path: &str, data: &[(&str, &str)]) -> Result<Response> {
