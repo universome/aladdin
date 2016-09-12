@@ -19,6 +19,7 @@ pub static DRAW: &str = "(draw)";
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Kind {
     CounterStrike(kinds::CounterStrike),
+    CrossFire(kinds::CrossFire),
     Dota2(kinds::Dota2),
     Hearthstone(kinds::Hearthstone),
     HeroesOfTheStorm(kinds::HeroesOfTheStorm),
@@ -33,6 +34,9 @@ pub enum Kind {
 pub mod kinds {
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub enum CounterStrike { Series }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub enum CrossFire { Series }
 
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub enum Dota2 { Series }

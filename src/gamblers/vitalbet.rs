@@ -315,6 +315,7 @@ fn get_kind_from_match(match_: &Match) -> Option<Kind> {
         3600 => Some(Kind::Smite(Smite::Series)),
         3704 => Some(Kind::StarCraft2(StarCraft2::Series)),
         3601 => Some(Kind::WorldOfTanks(WorldOfTanks::Series)),
+        6241 => Some(Kind::CrossFire(CrossFire::Series)),
         _ => {
             debug!("New category in vitalbet esports: {:?}", match_.Category);
             None
