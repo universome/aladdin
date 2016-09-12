@@ -106,6 +106,12 @@ fn run_gambler(bookie_id: usize, incoming: Sender<MarkedOffer>, outgoing: Sender
         }
     };
 
+    {
+        let mut state = STATE.write().unwrap();
+        state.bookies[bookie_id].balance = balance;
+        state.bookies[bookie_id].active = true;
+    }
+
     let error = bookie.gambler.watch(&|offer, update| {
         let marked = MarkedOffer(bookie, offer);
 
@@ -117,6 +123,11 @@ fn run_gambler(bookie_id: usize, incoming: Sender<MarkedOffer>, outgoing: Sender
     }).unwrap_err();
 
     error!("{}: {}", bookie.host, error);
+
+    {
+        let mut state = STATE.write().unwrap();
+        state.bookies[bookie_id].active = false;
+    }
 }
 
 fn process_channels(incoming: Receiver<MarkedOffer>, outgoing: Receiver<MarkedOffer>) {
