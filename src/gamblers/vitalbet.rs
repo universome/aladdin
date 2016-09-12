@@ -33,16 +33,16 @@ impl VitalBet {
         }
     }
 
-    // TODO(universome): pass timestamps, like they do
+    // TODO(universome): Pass timestamps, like they do.
     fn generate_polling_path(&self) -> String {
-        // First, we should get connection ConnectionToken
+        // First, we should get connection token.
         let auth_path = concat!("/signalr/negotiate?transport=longPolling&clientProtocol=1.5",
                                 "&connectionData=%5B%7B%22name%22%3A%22sporttypehub%22%7D%5D");
         let response = self.session.get_json::<PollingAuthResponse>(auth_path);
         let ConnectionToken = response.unwrap().ConnectionToken;
         let ConnectionToken = utf8_percent_encode(&ConnectionToken, VITALBET_ENCODE_SET).collect::<String>();
 
-        // We should notify them, that we are starting polling (because they do it too)
+        // We should notify them, that we are starting polling (because they do it too).
         self.session.get_raw_json(&format!(concat!("/signalr/start?transport=longPolling",
                                  "&connectionData=%5B%7B%22name%22%3A%22sporttypehub%22%7D%5D",
                                  "clientProtocol=1.5&connectionToken={}"), ConnectionToken));
@@ -80,11 +80,11 @@ impl Gambler for VitalBet {
             changed_matches: HashSet::new()
         };
 
-        // First of all, we should get initial page to get session cookie
+        // First of all, we should get initial page to get session cookie.
         try!(self.session.get_html("/"));
 
-        // Now we have some cookie! Let's get initial offers
-        // TODO(universome): we should get offers from other sports too, not only Dota 2.
+        // Now we have some cookie! Let's get initial offers.
+        // TODO(universome): We should get offers from other sports too, not only Dota 2.
         let path = "/api/sportmatch/Get?sportID=2357";
         let initial_matches = try!(self.session.get_json::<Vec<Match>>(path));
 
@@ -249,7 +249,7 @@ fn convert_prematch_odd_update(update: &PrematchOddUpdate) -> OddUpdate {
     OddUpdate {
         ID: update.0,
         Value: update.1,
-        IsSuspended: update.2 == 3 // IsSuspended status (look at their js)
+        IsSuspended: update.2 == 3 // IsSuspended status.
     }
 }
 
@@ -261,7 +261,7 @@ fn convert_prematch_match_update(update: PrematchMatchUpdate) -> Match {
 
     Match {
         ID: update.0,
-        IsSuspended: update.1 == 3, // IsSuspended status (look at their js)
+        IsSuspended: update.1 == 3, // IsSuspended status.
         DateOfMatch: time::strftime("%Y-%m-%dT%H:%M:%S", &tm).unwrap(),
 
         IsFinished: None,
@@ -318,6 +318,7 @@ fn get_kind_from_match(match_: &Match) -> Option<Kind> {
         6241 => Some(Kind::CrossFire(CrossFire::Series)),
         _ => {
             debug!("New category in vitalbet esports: {:?}", match_.Category);
+            
             None
         }
     }
@@ -353,20 +354,20 @@ fn apply_updates(state: &mut State, messages: Vec<PollingMessage>) {
 
 fn apply_odd_update(odd_update: &OddUpdate, state: &mut State) -> Result<()> {
     if !state.odds_to_matches_ids.contains_key(&odd_update.ID) {
-        // This is an update for some odd, which we do not track
+        // This is an update for some odd, which we do not track.
         return Ok(());
     }
 
     let match_id = state.odds_to_matches_ids.get(&odd_update.ID).unwrap();
 
     if !state.matches.contains_key(&match_id) {
-        // This is an update for some match, which we do not track
+        // This is an update for some match, which we do not track.
         return Ok(());
     }
 
     let match_ = state.matches.get_mut(&match_id).unwrap();
 
-    // Find the odd we want to update and update it
+    // Find the odd we want to update and update it.
     if let Some(ref mut odds) = match_.odds {
         for odd in odds {
             if odd.ID == odd_update.ID {
@@ -379,7 +380,7 @@ fn apply_odd_update(odd_update: &OddUpdate, state: &mut State) -> Result<()> {
             state.changed_matches.insert(match_.ID);
         }
     } else {
-        unreachable!(); // For debug purposes
+        unreachable!();
     }
 
     Ok(())
@@ -406,9 +407,9 @@ fn apply_match_update(match_update: Match, state: &mut State) -> Result<()> {
 }
 
 fn provide_offers(state: &mut State, cb: &Fn(Offer, bool)) -> Result<()> {
-    // TODO(universome): detect changes more accurately
+    // TODO(universome): Detect changes more accurately.
     for updated_match_id in state.changed_matches.drain() {
-        // First of all we should remove our old offer
+        // First of all we should remove our old offer.
         if state.offers.contains_key(&updated_match_id) {
             let offer = state.offers.remove(&updated_match_id).unwrap();
             
@@ -428,8 +429,6 @@ fn provide_offers(state: &mut State, cb: &Fn(Offer, bool)) -> Result<()> {
                 state.offers.insert(offer.inner_id as u32, offer.clone());
                 
                 cb(offer, true);
-            } else {
-                debug!("Match is not transformed into offer: {:?}", match_);
             }
         }
     }
