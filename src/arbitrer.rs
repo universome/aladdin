@@ -10,24 +10,24 @@ use gamblers::{self, Gambler};
 use opportunity::{self, Strategy, MarkedOutcome};
 
 pub struct Bookie {
-    host: String,
+    pub host: String,
     username: String,
     password: String,
     gambler: Box<Gambler + Send + Sync>
 }
 
-pub struct MarkedOffer(&'static Bookie, Offer);
+pub struct MarkedOffer(pub &'static Bookie, pub Offer);
 pub type Event = Vec<MarkedOffer>;
 
 pub struct BookieInfo {
-    bookie: &'static Bookie,
-    balance: Currency,
-    active: bool
+    pub bookie: &'static Bookie,
+    pub balance: Currency,
+    pub active: bool
 }
 
 pub struct State {
-    events: HashMap<Offer, Event>,
-    bookies: Vec<BookieInfo>
+    pub events: HashMap<Offer, Event>,
+    pub bookies: Vec<BookieInfo>
 }
 
 lazy_static! {
