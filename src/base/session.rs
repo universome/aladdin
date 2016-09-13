@@ -74,6 +74,18 @@ impl Session {
         Ok(try!(json::from_reader(response)))
     }
 
+    pub fn get_raw_json(&self, path: &str) -> Result<json::Value> {
+        let mut headers = Headers::new();
+        headers.set(Accept(vec![qitem(mime!(Application/Json))]));
+
+        let mut string = String::new();
+        let mut response = try!(self.get(path, headers));
+
+        try!(response.read_to_string(&mut string));
+
+        Ok(try!(json::from_str(&string)))
+    }
+
     pub fn post_form(&self, path: &str, data: &[(&str, &str)]) -> Result<Response> {
         let encoded = UrlSerializer::new(String::new())
             .extend_pairs(data)
@@ -102,7 +114,7 @@ impl Session {
         let mut url = self.base_url.clone();
         url.push_str(path);
 
-        debug!("{} {}", if body.is_some() { "GET" } else { "POST" }, url);
+        debug!("{} {}", if body.is_some() { "POST" } else { "GET" }, url);
 
         let builder = match body {
             Some(body) => self.client.post(&url).body(body),

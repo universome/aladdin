@@ -14,6 +14,19 @@ impl Periodic {
             timestamp: Instant::now() - Duration::new(interval as u64, 0)
         }
     }
+
+    pub fn next_if_elapsed(&mut self) -> bool {
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.timestamp);
+
+        if elapsed.as_secs() < self.interval {
+            return false;
+        }
+
+        self.timestamp = now;
+
+        true
+    }
 }
 
 impl Iterator for Periodic {
