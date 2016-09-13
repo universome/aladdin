@@ -168,10 +168,10 @@ fn realize_event(event: &Event) {
         table.push(marked);
     }
 
-    info!("Checking event:");
+    debug!("Checking event:");
 
     for &MarkedOffer(bookie, ref offer) in event {
-        info!("    {} by {}", offer, bookie.host);
+        debug!("    {} by {}", offer, bookie.host);
     }
 
     let margin = opportunity::calc_margin(&table);
@@ -187,7 +187,7 @@ fn realize_event(event: &Event) {
                   rate, outcome.0, host, outcome.1, profit * 100.);
         }
     } else {
-        info!("  Opportunity doesn't exist (effective margin: {:.2})", margin);
+        debug!("  Opportunity doesn't exist (effective margin: {:.2})", margin);
     }
 }
 
