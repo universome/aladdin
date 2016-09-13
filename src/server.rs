@@ -2,10 +2,13 @@
 
 use std::fmt::Write;
 use std::time::{Duration, Instant};
+use std::collections::VecDeque;
 use hyper::server::{Server, Request, Response};
+use log::LogLevel;
 use time;
 
 use base::error::Result;
+use base::logger;
 use arbitrer::{self, State, MarkedOffer};
 
 pub fn run() {
@@ -22,6 +25,13 @@ fn handle(res: Response) -> Result<()> {
     let mut buffer = String::new();
 
     render_header(&mut buffer);
+
+    {
+        let messages = logger::acquire_messages();
+        if messages.len() > 0 {
+            render_messages(&mut buffer, &*messages);
+        }
+    }
 
     {
         let state = arbitrer::acquire_state();
@@ -41,13 +51,39 @@ fn render_header(b: &mut String) {
 <!DOCTYPE html>
 <meta charset="utf-8">
 <title>Aladdin</title>
-<script src="http://strapdownjs.com/v/0.2/strapdown.js" defer></script>
+<script src="http://ndossougbe.github.io/strapdown/dist/strapdown.js" defer></script>
 <style>
     td[align="right"] { text-align: right !important }
     td[align="center"] { text-align: center !important }
 </style>
 <xmp style="display:none;">
     "#);
+}
+
+fn render_messages(b: &mut String, messages: &VecDeque<logger::Message>) {
+    writeln!(b, r#"
+# Messages
+
+<ul class="list-group">
+    "#);
+
+    for message in messages.iter() {
+        writeln!(b, r#"<li class="list-group-item {class}">
+                           <span class="badge">{date}</span>
+                           `{module}` {data}
+                       </li>
+                "#,
+                 class = match message.level {
+                     LogLevel::Error => "list-group-item-danger",
+                     LogLevel::Warn => "list-group-item-warning",
+                     _ => ""
+                 },
+                 date = format_date(message.date, "%d/%m %R"),
+                 module = message.module,
+                 data = message.data);
+    }
+
+    writeln!(b, r#"</ul>"#);
 }
 
 fn render_bookies(b: &mut String, state: &State) {
