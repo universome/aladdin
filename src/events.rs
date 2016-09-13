@@ -21,6 +21,7 @@ pub enum Kind {
     CounterStrike(kinds::CounterStrike),
     CrossFire(kinds::CrossFire),
     Dota2(kinds::Dota2),
+    Halo(kinds::Halo),
     Hearthstone(kinds::Hearthstone),
     HeroesOfTheStorm(kinds::HeroesOfTheStorm),
     LeagueOfLegends(kinds::LeagueOfLegends),
@@ -40,6 +41,9 @@ pub mod kinds {
 
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub enum Dota2 { Series }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub enum Halo { Series }
 
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub enum Hearthstone { Series }

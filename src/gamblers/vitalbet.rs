@@ -318,13 +318,14 @@ fn get_kind_from_match(match_: &Match) -> Option<Kind> {
     }
 
     Some(match match_.Category.as_ref().unwrap().ID {
-        3683 => Kind::CounterStrike(CounterStrike::Series),
-        3693 => Kind::Dota2(Dota2::Series),
-        5791 => Kind::Overwatch(Overwatch::Series),
         3578 => Kind::LeagueOfLegends(LeagueOfLegends::Series),
         3600 => Kind::Smite(Smite::Series),
-        3704 => Kind::StarCraft2(StarCraft2::Series),
         3601 => Kind::WorldOfTanks(WorldOfTanks::Series),
+        3683 => Kind::CounterStrike(CounterStrike::Series),
+        3693 => Kind::Dota2(Dota2::Series),
+        3704 => Kind::StarCraft2(StarCraft2::Series),
+        5791 => Kind::Overwatch(Overwatch::Series),
+        5942 => Kind::Halo(Halo::Series),
         6241 => Kind::CrossFire(CrossFire::Series),
         _ => {
             warn!("New category in vitalbet esports: {:?}", match_.Category);
