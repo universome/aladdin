@@ -319,6 +319,7 @@ fn get_kind_from_match(match_: &Match) -> Option<Kind> {
 
     Some(match match_.Category.as_ref().unwrap().ID {
         3578 => Kind::LeagueOfLegends(LeagueOfLegends::Series),
+        3597 => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
         3600 => Kind::Smite(Smite::Series),
         3601 => Kind::WorldOfTanks(WorldOfTanks::Series),
         3683 => Kind::CounterStrike(CounterStrike::Series),
