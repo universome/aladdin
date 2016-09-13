@@ -1,8 +1,9 @@
 #![allow(unused_must_use)]
 
+use std::iter;
 use std::fmt::Write;
 use std::time::{Duration, Instant};
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashMap};
 use hyper::server::{Server, Request, Response};
 use log::LogLevel;
 use time;
@@ -28,9 +29,7 @@ fn handle(res: Response) -> Result<()> {
 
     {
         let messages = logger::acquire_messages();
-        if messages.len() > 0 {
-            render_messages(&mut buffer, &*messages);
-        }
+        render_messages(&mut buffer, &*messages);
     }
 
     {
@@ -61,6 +60,10 @@ fn render_header(b: &mut String) {
 }
 
 fn render_messages(b: &mut String, messages: &VecDeque<logger::Message>) {
+    if messages.is_empty() {
+        return;
+    }
+
     writeln!(b, r#"
 # Messages
 
@@ -103,31 +106,45 @@ fn render_bookies(b: &mut String, state: &State) {
 }
 
 fn render_events(b: &mut String, state: &State) {
+    if state.events.is_empty() {
+        return;
+    }
+
     writeln!(b, "# Events");
 
-    for event in state.events.values() {
-        writeln!(b, "|`{date}`|{kind:?}|",
-                 date = format_date(event[0].1.date, "%d/%m"),
-                 kind = event[0].1.kind);
+    let mut groups = HashMap::new();
 
-        writeln!(b, "| --- | --- | --- |");
+    for (offer, event) in &state.events {
+        let vec = groups.entry(offer.kind.clone()).or_insert_with(Vec::new);
+        vec.push(event);
+    }
 
-        for &MarkedOffer(bookie, ref offer) in event {
-            write!(b, "|`{date}`|{host}|#{inner_id}|",
-                   date = format_date(offer.date, "%R"),
-                   host = bookie.host,
-                   inner_id = offer.inner_id);
+    for (kind, events) in groups {
+        writeln!(b, "## {:?}", kind);
 
-            for outcome in &offer.outcomes {
-                write!(b, "{outcome} `{odds}`|",
-                       outcome = outcome.0,
-                       odds = outcome.1);
+        for event in events {
+            let outcome_count = event[0].1.outcomes.len();
+
+            writeln!(b, "{}", iter::repeat('|').take(outcome_count + 4).collect::<String>());
+            writeln!(b, "|{}", iter::repeat("---|").take(outcome_count + 3).collect::<String>());
+
+            for &MarkedOffer(bookie, ref offer) in event {
+                write!(b, "|`{date}`|{host}|#{inner_id}|",
+                       date = format_date(offer.date, "%d/%m %R"),
+                       host = bookie.host,
+                       inner_id = offer.inner_id);
+
+                for outcome in &offer.outcomes {
+                    write!(b, "{outcome} `{odds}`|",
+                           outcome = outcome.0,
+                           odds = outcome.1);
+                }
+
+                writeln!(b, "");
             }
 
             writeln!(b, "");
         }
-
-        writeln!(b, "");
     }
 }
 
