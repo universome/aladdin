@@ -37,11 +37,15 @@ fn handle(res: Response) -> Result<()> {
 }
 
 fn render_header(b: &mut String) {
-    write!(b, r#"
+    b.push_str(r#"
 <!DOCTYPE html>
 <meta charset="utf-8">
 <title>Aladdin</title>
 <script src="http://strapdownjs.com/v/0.2/strapdown.js" defer></script>
+<style>
+    td[align="right"] { text-align: right !important }
+    td[align="center"] { text-align: center !important }
+</style>
 <xmp style="display:none;">
     "#);
 }
@@ -70,7 +74,7 @@ fn render_events(b: &mut String, state: &State) {
                  date = format_date(event[0].1.date, "%d/%m"),
                  kind = event[0].1.kind);
 
-        writeln!(b, "| --- | --- |:---:|");
+        writeln!(b, "| --- | --- | --- |");
 
         for &MarkedOffer(bookie, ref offer) in event {
             write!(b, "|`{date}`|{host}|#{inner_id}|",
