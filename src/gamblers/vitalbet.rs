@@ -50,6 +50,12 @@ impl VitalBet {
                         "&connectionData=%5B%7B%22name%22%3A%22sporttypehub%22%7D%5D",
                         "&connectionToken={}"), token))
     }
+
+    fn get_all_matches(&self) -> Result<Vec<Match>> {
+        let path = "/api/sportmatch/Get?sportID=2357";
+        
+        self.session.get_json::<Vec<Match>>(path)
+    }
 }
 
 impl Gambler for VitalBet {
@@ -72,39 +78,43 @@ impl Gambler for VitalBet {
     }
 
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+        // First of all, we should get initial page to get session cookie.
+        try!(self.session.get_html("/"));
+
+        let mut timer = Periodic::new(3600);
         let mut state = State {
-            matches: HashMap::new(),
             odds_to_matches_ids: HashMap::new(),
+            matches: HashMap::new(),
             offers: HashMap::new(),
             changed_matches: HashSet::new()
         };
 
-        // First of all, we should get initial page to get session cookie.
-        try!(self.session.get_html("/"));
-
-        // Now we have some cookie! Let's get initial offers.
-        let path = "/api/sportmatch/Get?sportID=2357";
-        let initial_matches = try!(self.session.get_json::<Vec<Match>>(path));
+        // Fill with initial matches
+        let initial_matches = try!(self.get_all_matches());
 
         for match_ in initial_matches {
-            if let Some(offer) = try!(convert_match_into_offer(&match_)) {
-                state.offers.insert(offer.inner_id as u32, offer.clone());
-
-                cb(offer, true);
-
-                if let Some(ref odds) = match_.PreviewOdds {
-                    for odd in odds {
-                        state.odds_to_matches_ids.insert(odd.ID, match_.ID);
-                    }
-                }
-
-                state.matches.insert(match_.ID, match_);
-            }
+            try!(apply_match_update(&mut state, match_));
         }
 
+        try!(provide_offers(&mut state, cb));
+
+        // Start polling
         let polling_path = try!(self.generate_polling_path());
 
         loop {
+            // Every hour we should renew our state
+            if timer.next_if_elapsed() {
+                let matches = try!(self.get_all_matches());
+
+                state.odds_to_matches_ids = HashMap::new();
+
+                for match_ in matches {
+                    try!(apply_match_update(&mut state, match_));
+                }
+
+                try!(provide_offers(&mut state, cb));
+            }
+
             let updates: PollingResponse = try!(self.session.get_json(&polling_path));
             
             try!(apply_updates(&mut state, updates.M));
@@ -123,6 +133,17 @@ struct State {
     matches: HashMap<u32, Match>,
     offers: HashMap<u32, Offer>,
     changed_matches: HashSet<u32>
+}
+
+impl State {
+    fn new(&self) -> State {
+        State {
+            matches: HashMap::new(),
+            odds_to_matches_ids: HashMap::new(),
+            offers: HashMap::new(),
+            changed_matches: HashSet::new()
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -318,22 +339,22 @@ fn apply_updates(state: &mut State, messages: Vec<PollingMessage>) -> Result<()>
         match msg {
             PM::OddsUpdateMessage(ref msg) => {
                 for odd_update in msg.A.iter().flat_map(|updates| updates.into_iter()) {
-                    try!(apply_odd_update(odd_update, state));
+                    try!(apply_odd_update(state, odd_update));
                 }
             },
             PM::PrematchOddsUpdateMessage(ref msg) => {
                 for odd_update in msg.A.iter().flat_map(|updates| updates.iter()) {
-                    try!(apply_odd_update(&convert_prematch_odd_update(odd_update), state));
+                    try!(apply_odd_update(state, &convert_prematch_odd_update(odd_update),));
                 }
             },
             PM::MatchesUpdateMessage(msg) => {
                 for match_update in msg.A.into_iter().flat_map(|updates| updates.into_iter()) {
-                    try!(apply_match_update(match_update, state));
+                    try!(apply_match_update(state, match_update));
                 }
             },
             PM::PrematchMatchesUpdateMessage(msg) => {
                 for match_update in msg.A.into_iter().flat_map(|updates| updates.into_iter()) {
-                    try!(apply_match_update(convert_prematch_match_update(match_update), state));
+                    try!(apply_match_update(state, convert_prematch_match_update(match_update)));
                 }
             },
             _ => {}
@@ -343,7 +364,7 @@ fn apply_updates(state: &mut State, messages: Vec<PollingMessage>) -> Result<()>
     Ok(())
 }
 
-fn apply_odd_update(odd_update: &OddUpdate, state: &mut State) -> Result<()> {
+fn apply_odd_update(state: &mut State, odd_update: &OddUpdate) -> Result<()> {
     if !state.odds_to_matches_ids.contains_key(&odd_update.ID) {
         // This is an update for some odd, which we do not track.
         return Ok(());
@@ -373,7 +394,7 @@ fn apply_odd_update(odd_update: &OddUpdate, state: &mut State) -> Result<()> {
     Ok(())
 }
 
-fn apply_match_update(match_update: Match, state: &mut State) -> Result<()> {
+fn apply_match_update(state: &mut State, match_update: Match) -> Result<()> {
     state.changed_matches.insert(match_update.ID);
 
     if state.matches.contains_key(&match_update.ID) {
@@ -383,7 +404,9 @@ fn apply_match_update(match_update: Match, state: &mut State) -> Result<()> {
         match_.DateOfMatch = match_update.DateOfMatch;
 
         if let Some(odds) = match_update.PreviewOdds {
-            warn!("We have odds in matchesUpdated (!!!): {:?}", odds);
+            for odd in &odds {
+                state.odds_to_matches_ids.insert(odd.ID, match_.ID);
+            }
 
             match_.PreviewOdds = Some(odds);
         }
@@ -395,28 +418,20 @@ fn apply_match_update(match_update: Match, state: &mut State) -> Result<()> {
 }
 
 fn provide_offers(state: &mut State, cb: &Fn(Offer, bool)) -> Result<()> {
-    // TODO(universome): Detect changes more accurately.
     for updated_match_id in state.changed_matches.drain() {
-        // First of all we should remove our old offer.
-        if state.offers.contains_key(&updated_match_id) {
-            let offer = state.offers.remove(&updated_match_id).unwrap();
+        if let Some(offer) = try!(convert_match_into_offer(&state.matches[&updated_match_id])) {
+            state.offers.insert(offer.inner_id as u32, offer.clone());
             
-            cb(offer.clone(), false);
-        }
-
-        let is_finished = state.matches[&updated_match_id].IsFinished.unwrap_or(false);
-        
-        if is_finished {
-            debug!("Match is finished: {:?}", state.matches[&updated_match_id]);
-
-            state.matches.remove(&updated_match_id);
+            cb(offer, true);
         } else {
-            let ref match_ = state.matches[&updated_match_id];
+            if let Some(offer) = state.offers.remove(&updated_match_id) {
+                cb(offer, false);
+            }
 
-            if let Some(offer) = try!(convert_match_into_offer(match_)) {
-                state.offers.insert(offer.inner_id as u32, offer.clone());
-                
-                cb(offer, true);
+            if state.matches[&updated_match_id].IsFinished.unwrap_or(false) {
+                debug!("Match is finished: {:?}", state.matches[&updated_match_id]);
+
+                state.matches.remove(&updated_match_id);
             }
         }
     }
