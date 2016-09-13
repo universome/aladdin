@@ -51,11 +51,7 @@ fn render_header(b: &mut String) {
 <meta charset="utf-8">
 <title>Aladdin</title>
 <script src="http://ndossougbe.github.io/strapdown/dist/strapdown.js" defer></script>
-<style>
-    td[align="right"] { text-align: right !important }
-    td[align="center"] { text-align: center !important }
-</style>
-<xmp style="display:none;">
+<xmp style="display:none;" toc>
     "#);
 }
 
