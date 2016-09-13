@@ -119,8 +119,10 @@ fn render_events(b: &mut String, state: &State) {
         vec.push(event);
     }
 
-    for (kind, events) in groups {
+    for (kind, mut events) in groups {
         writeln!(b, "## {:?}", kind);
+
+        events.sort_by_key(|event| event[0].1.date);
 
         for event in events {
             let outcome_count = event[0].1.outcomes.len();
