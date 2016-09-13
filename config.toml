@@ -1,6 +1,9 @@
 [logging]
 history-size = 20
 
+[server]
+port = 3000
+
 [[bookies]]
 host = "egamingbets.com"
 username = "shmaladdin"

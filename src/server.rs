@@ -10,10 +10,16 @@ use time;
 
 use base::error::Result;
 use base::logger;
+use base::config::CONFIG;
 use arbitrer::{self, State, MarkedOffer};
 
+lazy_static! {
+    static ref PORT: u16 = CONFIG.lookup("server.port")
+        .unwrap().as_integer().unwrap() as u16;
+}
+
 pub fn run() {
-    Server::http("0.0.0.0:3000").unwrap()
+    Server::http(("0.0.0.0", *PORT)).unwrap()
         .handle_threads(move |_: Request, res: Response| {
             if let Err(error) = handle(res) {
                 error!("{}", error);
