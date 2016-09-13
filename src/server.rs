@@ -28,8 +28,8 @@ fn handle(res: Response) -> Result<()> {
     render_header(&mut buffer);
 
     {
-        let messages = logger::acquire_messages();
-        render_messages(&mut buffer, &*messages);
+        let history = logger::acquire_history();
+        render_history(&mut buffer, &*history);
     }
 
     {
@@ -55,8 +55,8 @@ fn render_header(b: &mut String) {
     "#);
 }
 
-fn render_messages(b: &mut String, messages: &VecDeque<logger::Message>) {
-    if messages.is_empty() {
+fn render_history(b: &mut String, history: &VecDeque<logger::Message>) {
+    if history.is_empty() {
         return;
     }
 
@@ -66,7 +66,7 @@ fn render_messages(b: &mut String, messages: &VecDeque<logger::Message>) {
 <ul class="list-group">
     "#);
 
-    for message in messages.iter() {
+    for message in history.iter() {
         writeln!(b, r#"<li class="list-group-item {class}">
                            <span class="badge">{date}</span>
                            `{module}` {data}
