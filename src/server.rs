@@ -87,16 +87,20 @@ fn render_history(b: &mut String, history: &VecDeque<logger::Message>) {
 
     for message in history.iter() {
         writeln!(b, r#"<li class="list-group-item {class}">
-                           <span class="badge">{date}</span>
-                           `{module}` {data}
-                       </li>
-                "#,
+                           <span class="badge">{date}</span>"#,
                  class = match message.level {
                      LogLevel::Error => "list-group-item-danger",
                      LogLevel::Warn => "list-group-item-warning",
                      _ => ""
                  },
-                 date = format_date(message.date, "%d/%m %R"),
+                 date = format_date(message.date, "%d/%m %R"));
+
+        if message.count > 1 {
+            writeln!(b, r#"<span class="badge">{count}</span>"#,
+                     count = message.count);
+        }
+
+        writeln!(b, r#"`{module}` {data}</li>"#,
                  module = message.module,
                  data = message.data);
     }
