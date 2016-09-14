@@ -1,3 +1,6 @@
+[logging]
+history-size = 20
+
 [[bookies]]
 host = "egamingbets.com"
 username = "shmaladdin"

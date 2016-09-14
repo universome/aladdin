@@ -1,34 +1,62 @@
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Sender, Receiver};
+use std::sync::{RwLock, RwLockReadGuard};
 use crossbeam;
 
 use base::config::CONFIG;
+use base::currency::Currency;
 use events::{Offer, Outcome};
 use gamblers::{self, Gambler};
 use opportunity::{self, Strategy, MarkedOutcome};
 
-struct Bookie {
-    host: String,
+pub struct Bookie {
+    pub host: String,
     username: String,
     password: String,
-    gambler: Box<Gambler + Sync>
+    gambler: Box<Gambler + Send + Sync>
 }
 
-struct MarkedOffer<'a>(&'a Bookie, Offer);
-type Event<'a> = Vec<MarkedOffer<'a>>;
+pub struct MarkedOffer(pub &'static Bookie, pub Offer);
+pub type Event = Vec<MarkedOffer>;
+
+pub struct BookieInfo {
+    pub bookie: &'static Bookie,
+    pub balance: Currency,
+    pub active: bool
+}
+
+pub struct State {
+    pub events: HashMap<Offer, Event>,
+    pub bookies: Vec<BookieInfo>
+}
+
+lazy_static! {
+    static ref BOOKIES: Vec<Bookie> = init_bookies();
+
+    static ref STATE: RwLock<State> = RwLock::new(State {
+        events: HashMap::new(),
+        bookies: BOOKIES.iter().map(|bookie| BookieInfo {
+            bookie: bookie,
+            balance: Currency(0),
+            active: false
+        }).collect()
+    });
+}
+
+pub fn acquire_state() -> RwLockReadGuard<'static, State> {
+    STATE.read().unwrap()
+}
 
 pub fn run() {
-    let bookies = init_bookies();
-
     let (incoming_tx, incoming_rx) = mpsc::channel();
     let (outgoing_tx, outgoing_rx) = mpsc::channel();
 
     crossbeam::scope(|scope| {
-        for bookie in &bookies {
+        for bookie_id in 0..BOOKIES.len() {
             let incoming_tx = incoming_tx.clone();
             let outgoing_tx = outgoing_tx.clone();
 
-            scope.spawn(move || run_gambler(bookie, incoming_tx, outgoing_tx));
+            scope.spawn(move || run_gambler(bookie_id, incoming_tx, outgoing_tx));
         }
 
         process_channels(incoming_rx, outgoing_rx);
@@ -61,14 +89,27 @@ fn init_bookies() -> Vec<Bookie> {
     bookies
 }
 
-fn run_gambler<'a>(bookie: &'a Bookie,
-                   incoming: Sender<MarkedOffer<'a>>,
-                   outgoing: Sender<MarkedOffer<'a>>)
-{
+fn run_gambler(bookie_id: usize, incoming: Sender<MarkedOffer>, outgoing: Sender<MarkedOffer>) {
+    let bookie = &BOOKIES[bookie_id];
+
     // TODO(loyd): add error handling (don't forget about catching panics!).
     if let Err(error) = bookie.gambler.authorize(&bookie.username, &bookie.password) {
-        error!("Auth {}: {}", bookie.host, error);
+        error!("{} authorization: {}", bookie.host, error);
         return;
+    }
+
+    let balance = match bookie.gambler.check_balance() {
+        Ok(balance) => balance,
+        Err(error) => {
+            error!("{} balance checking: {}", bookie.host, error);
+            return;
+        }
+    };
+
+    {
+        let mut state = STATE.write().unwrap();
+        state.bookies[bookie_id].balance = balance;
+        state.bookies[bookie_id].active = true;
     }
 
     let error = bookie.gambler.watch(&|offer, update| {
@@ -82,21 +123,26 @@ fn run_gambler<'a>(bookie: &'a Bookie,
     }).unwrap_err();
 
     error!("{}: {}", bookie.host, error);
+
+    {
+        let mut state = STATE.write().unwrap();
+        state.bookies[bookie_id].active = false;
+    }
 }
 
 fn process_channels(incoming: Receiver<MarkedOffer>, outgoing: Receiver<MarkedOffer>) {
-    let mut events = HashMap::new();
-
     loop {
         let marked = incoming.recv().unwrap();
         let key = marked.1.clone();
-        update_offer(&mut events, marked);
+        let mut state = STATE.write().unwrap();
+
+        update_offer(&mut state.events, marked);
 
         while let Ok(marked) = outgoing.try_recv() {
-            remove_offer(&mut events, marked);
+            remove_offer(&mut state.events, marked);
         }
 
-        if let Some(event) = events.get(&key) {
+        if let Some(event) = state.events.get(&key) {
             realize_event(event);
         }
     }
@@ -125,7 +171,7 @@ fn remove_offer(events: &mut HashMap<Offer, Event>, marked: MarkedOffer) {
     }
 }
 
-fn update_offer<'i>(events: &mut HashMap<Offer, Event<'i>>, marked: MarkedOffer<'i>) {
+fn update_offer(events: &mut HashMap<Offer, Event>, marked: MarkedOffer) {
     if events.contains_key(&marked.1) {
         let event = events.get_mut(&marked.1).unwrap();
 

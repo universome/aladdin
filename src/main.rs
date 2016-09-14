@@ -27,7 +27,7 @@ mod opportunity;
 mod arbitrer;
 
 fn main() {
-    env_logger::init().unwrap();
+    base::logger::init().unwrap();
 
     // TODO(loyd): make CLI.
     arbitrer::run();

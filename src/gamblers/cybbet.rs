@@ -186,6 +186,7 @@ fn extract_offers(html: NodeRef) -> Result<Vec<Offer>> {
         let kind = match kind_class {
             "csgo" => Kind::CounterStrike(CounterStrike::Series),
             "dota2" => Kind::Dota2(Dota2::Series),
+            "hearthstone" => Kind::Hearthstone(Hearthstone::Series),
             "heroesofthestorm" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
             "lol" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
             "ovw" => Kind::Overwatch(Overwatch::Series),
