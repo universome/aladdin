@@ -1,0 +1,51 @@
+#!/bin/sh
+
+set -e
+
+TARGET=x86_64-unknown-linux-gnu
+FLAGS=
+MODE=debug
+USER=aladdin
+HOST=46.101.244.208
+MAIN=\~/aladdin
+LOG=\~/aladdin.log
+ENV=RUST_LOG=aladdin=info
+
+if [ $MODE == release ]; then
+    FLAGS="--release $FLAGS"
+fi
+
+function remote {
+    ssh "$USER@$HOST" "$1"
+}
+
+STATUS_CMD="start-stop-daemon --status --exec $MAIN"
+START_CMD="$ENV start-stop-daemon --start --oknodo --no-close --background --exec $MAIN > $LOG 2>&1"
+STOP_CMD="start-stop-daemon --stop --oknodo --retry 10 --exec $MAIN"
+LOG_CMD="cat $LOG"
+
+case "$1" in
+    deploy)
+        cargo build --target=$TARGET $FLAGS
+        scp "target/$TARGET/$MODE/aladdin" "$USER@$HOST":~
+        ;;
+
+    status)
+        set +e
+        remote "$STATUS_CMD"
+        case "$?" in
+            0) echo 'Aladdin is running' ;;
+            1|3) echo 'Aladdin is not running' ;;
+            4) echo 'Unable to determine status' ;;
+        esac
+        ;;
+
+    log) remote "$LOG_CMD" ;;
+    start) remote "$START_CMD" ;;
+    stop) remote "$STOP_CMD" ;;
+    restart) remote "$STOP_CMD && $START_CMD" ;;
+
+    *)
+        echo "Usage: "$1" {deploy|log|status|start|stop|restart}"
+        exit 1
+esac
