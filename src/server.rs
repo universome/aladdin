@@ -4,7 +4,7 @@ use std::iter;
 use std::fmt::Write;
 use std::time::{Duration, Instant};
 use std::collections::{VecDeque, HashMap};
-use hyper::{Get, Post, NotFound};
+use hyper::{Get, NotFound};
 use hyper::server::{Server, Request, Response};
 use hyper::uri::RequestUri::AbsolutePath;
 use log::LogLevel;
@@ -20,7 +20,10 @@ lazy_static! {
 }
 
 pub fn run() {
-    Server::http(("0.0.0.0", *PORT)).unwrap().handle_threads(handle, 1).unwrap();
+    let mut server = Server::http(("0.0.0.0", *PORT)).unwrap();
+
+    server.keep_alive(None);
+    server.handle_threads(handle, 1).unwrap();
 }
 
 fn handle(req: Request, res: Response) {
