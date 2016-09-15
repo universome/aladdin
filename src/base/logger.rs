@@ -7,6 +7,10 @@ use time;
 
 use base::config::CONFIG;
 
+macro_rules! stylish {
+    ($style:expr) => (concat!("\x1b[", $style, "m"))
+}
+
 struct Logger(EnvLogger);
 
 impl Log for Logger {
@@ -22,15 +26,39 @@ impl Log for Logger {
 
             save_to_history(Message {
                 level: record.level(),
-                module: if target.starts_with("aladdin::") {
-                    target.rsplit("::").next().unwrap().to_string()
-                } else {
-                    target.to_string()
-                },
+                module: trim_target(record.target()).to_string(),
                 date: time::get_time().sec as u32,
                 data: format!("{}", record.args())
             });
         }
+    }
+}
+
+fn format(record: &LogRecord) -> String {
+    let style = match record.level() {
+        LogLevel::Error => stylish!("31"),
+        LogLevel::Warn  => stylish!("33"),
+        LogLevel::Info  => stylish!("37"),
+        LogLevel::Debug => stylish!("35"),
+        LogLevel::Trace => stylish!("34")
+    };
+
+    let timestamp = time::now();
+
+    format!("{st_t}{timestamp}{st_r} {target:12} | {st_m}{message}{st_r}",
+            st_t = style,
+            st_m = style,
+            st_r = stylish!("0"),
+            timestamp = timestamp.strftime("%R").unwrap(),
+            target = trim_target(record.target()),
+            message = record.args())
+}
+
+fn trim_target(target: &str) -> &str {
+    if target.starts_with("aladdin::") {
+        target.rsplit("::").next().unwrap()
+    } else {
+        target
     }
 }
 
@@ -68,7 +96,7 @@ pub fn init() -> Result<(), SetLoggerError> {
         env_log_builder.parse(&s);
     }
 
-    let env_logger = env_log_builder.build();
+    let env_logger = env_log_builder.format(format).build();
 
     log::set_logger(|max_log_level| {
         max_log_level.set(env_logger.filter());
