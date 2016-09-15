@@ -7,10 +7,6 @@ use time;
 
 use base::config::CONFIG;
 
-macro_rules! stylish {
-    ($style:expr) => (concat!("\x1b[", $style, "m"))
-}
-
 struct Logger(EnvLogger);
 
 impl Log for Logger {
@@ -22,8 +18,6 @@ impl Log for Logger {
         self.0.log(record);
 
         if self.enabled(record.metadata()) && record.level() <= LogLevel::Warn {
-            let target = record.target();
-
             save_to_history(Message {
                 level: record.level(),
                 module: trim_target(record.target()).to_string(),
@@ -32,6 +26,10 @@ impl Log for Logger {
             });
         }
     }
+}
+
+macro_rules! stylish {
+    ($style:expr) => (concat!("\x1b[", $style, "m"))
 }
 
 fn format(record: &LogRecord) -> String {
