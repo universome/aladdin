@@ -53,7 +53,7 @@ impl VitalBet {
 
     fn get_all_matches(&self) -> Result<Vec<Match>> {
         let path = "/api/sportmatch/Get?sportID=2357";
-        
+
         self.session.get_json::<Vec<Match>>(path)
     }
 }
@@ -116,7 +116,7 @@ impl Gambler for VitalBet {
             }
 
             let updates: PollingResponse = try!(self.session.get_json(&polling_path));
-            
+
             try!(apply_updates(&mut state, updates.M));
             try!(provide_offers(&mut state, cb));
         }
@@ -320,6 +320,7 @@ fn get_kind_from_match(match_: &Match) -> Option<Kind> {
     Some(match match_.Category.as_ref().unwrap().ID {
         3578 => Kind::LeagueOfLegends(LeagueOfLegends::Series),
         3597 => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
+        3598 => Kind::Hearthstone(Hearthstone::Series),
         3600 => Kind::Smite(Smite::Series),
         3601 => Kind::WorldOfTanks(WorldOfTanks::Series),
         3683 => Kind::CounterStrike(CounterStrike::Series),
@@ -423,7 +424,7 @@ fn provide_offers(state: &mut State, cb: &Fn(Offer, bool)) -> Result<()> {
     for updated_match_id in state.changed_matches.drain() {
         if let Some(offer) = try!(convert_match_into_offer(&state.matches[&updated_match_id])) {
             state.offers.insert(offer.inner_id as u32, offer.clone());
-            
+
             cb(offer, true);
         } else {
             if let Some(offer) = state.offers.remove(&updated_match_id) {
