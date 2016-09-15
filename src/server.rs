@@ -4,11 +4,12 @@ use std::iter;
 use std::fmt::Write;
 use std::time::{Duration, Instant};
 use std::collections::{VecDeque, HashMap};
+use hyper::{Get, NotFound};
 use hyper::server::{Server, Request, Response};
+use hyper::uri::RequestUri::AbsolutePath;
 use log::LogLevel;
 use time;
 
-use base::error::Result;
 use base::logger;
 use base::config::CONFIG;
 use arbitrer::{self, State, MarkedOffer};
@@ -19,15 +20,29 @@ lazy_static! {
 }
 
 pub fn run() {
-    Server::http(("0.0.0.0", *PORT)).unwrap()
-        .handle_threads(move |_: Request, res: Response| {
-            if let Err(error) = handle(res) {
-                error!("{}", error);
-            }
-        }, 1).unwrap();
+    let mut server = Server::http(("0.0.0.0", *PORT)).unwrap();
+
+    server.keep_alive(None);
+    server.handle_threads(handle, 1).unwrap();
 }
 
-fn handle(res: Response) -> Result<()> {
+fn handle(req: Request, res: Response) {
+    debug!("{} {}", req.method, req.uri);
+
+    match req.uri {
+        AbsolutePath(ref path) => match (&req.method, &path[..]) {
+            (&Get, "/") => send_index(res),
+            _ => send_404(res)
+        },
+        _ => send_404(res)
+    };
+}
+
+fn send_404(mut res: Response) {
+    *res.status_mut() = NotFound;
+}
+
+fn send_index(res: Response) {
     let now = Instant::now();
     let mut buffer = String::new();
 
@@ -46,9 +61,7 @@ fn handle(res: Response) -> Result<()> {
 
     render_footer(&mut buffer, now.elapsed());
 
-    try!(res.send(buffer.as_bytes()));
-
-    Ok(())
+    res.send(buffer.as_bytes());
 }
 
 fn render_header(b: &mut String) {
@@ -74,16 +87,20 @@ fn render_history(b: &mut String, history: &VecDeque<logger::Message>) {
 
     for message in history.iter() {
         writeln!(b, r#"<li class="list-group-item {class}">
-                           <span class="badge">{date}</span>
-                           `{module}` {data}
-                       </li>
-                "#,
+                           <span class="badge">{date}</span>"#,
                  class = match message.level {
                      LogLevel::Error => "list-group-item-danger",
                      LogLevel::Warn => "list-group-item-warning",
                      _ => ""
                  },
-                 date = format_date(message.date, "%d/%m %R"),
+                 date = format_date(message.date, "%d/%m %R"));
+
+        if message.count > 1 {
+            writeln!(b, r#"<span class="badge">{count}</span>"#,
+                     count = message.count);
+        }
+
+        writeln!(b, r#"`{module}` {data}</li>"#,
                  module = message.module,
                  data = message.data);
     }

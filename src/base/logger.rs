@@ -22,7 +22,8 @@ impl Log for Logger {
                 level: record.level(),
                 module: trim_target(record.target()).to_string(),
                 date: time::get_time().sec as u32,
-                data: format!("{}", record.args())
+                data: format!("{}", record.args()),
+                count: 1
             });
         }
     }
@@ -64,7 +65,8 @@ pub struct Message {
     pub level: LogLevel,
     pub module: String,
     pub date: u32,
-    pub data: String
+    pub data: String,
+    pub count: u32
 }
 
 lazy_static! {
@@ -75,6 +77,13 @@ lazy_static! {
 
 fn save_to_history(message: Message) {
     let mut history = HISTORY.write().unwrap();
+
+    if let Some(last) = history.back_mut() {
+        if (&last.module, &last.data) == (&message.module, &message.data) {
+            last.count += 1;
+            return;
+        }
+    }
 
     if history.len() >= *HISTORY_SIZE {
         history.pop_front();
