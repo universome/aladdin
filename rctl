@@ -40,7 +40,7 @@ case "$1" in
         esac
         ;;
 
-    log) remote "$LOG_CMD" ;;
+    log) remote "$LOG_CMD" | less -S +F ;;
     start) remote "$START_CMD" ;;
     stop) remote "$STOP_CMD" ;;
     restart) remote "$STOP_CMD && $START_CMD" ;;
