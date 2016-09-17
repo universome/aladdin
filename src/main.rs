@@ -1,5 +1,6 @@
 #![feature(plugin, custom_derive, static_in_const)]
 #![plugin(serde_macros)]
+#![allow(unused_variables, dead_code)]
 
 #[macro_use]
 extern crate log;
