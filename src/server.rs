@@ -12,7 +12,7 @@ use time;
 
 use base::logger;
 use base::config::CONFIG;
-use arbitrer::{self, State, MarkedOffer};
+use arbitrer::{self, Bookie, Events, MarkedOffer};
 
 lazy_static! {
     static ref PORT: u16 = CONFIG.lookup("server.port")
@@ -53,10 +53,11 @@ fn send_index(res: Response) {
         render_history(&mut buffer, &*history);
     }
 
+    render_bookies(&mut buffer, &arbitrer::BOOKIES);
+
     {
-        let state = arbitrer::acquire_state();
-        render_bookies(&mut buffer, &*state);
-        render_events(&mut buffer, &*state);
+        let events = arbitrer::acquire_events();
+        render_events(&mut buffer, &*events);
     }
 
     render_footer(&mut buffer, now.elapsed());
@@ -108,7 +109,7 @@ fn render_history(b: &mut String, history: &VecDeque<logger::Message>) {
     writeln!(b, r#"</ul>"#);
 }
 
-fn render_bookies(b: &mut String, state: &State) {
+fn render_bookies(b: &mut String, bookies: &[Bookie]) {
     write!(b, "
 # Bookies
 
@@ -116,16 +117,16 @@ fn render_bookies(b: &mut String, state: &State) {
 | ---- | -------:|:------:|
     ");
 
-    for bookie in &state.bookies {
+    for bookie in bookies {
         writeln!(b, "|{host}|{balance}|{active}|",
-                 host = bookie.bookie.host,
-                 balance = bookie.balance,
-                 active = if bookie.active { '✓' } else { ' ' });
+                 host = bookie.host,
+                 balance = bookie.balance(),
+                 active = if bookie.active() { '✓' } else { ' ' });
     }
 }
 
-fn render_events(b: &mut String, state: &State) {
-    if state.events.is_empty() {
+fn render_events(b: &mut String, events: &Events) {
+    if events.is_empty() {
         return;
     }
 
@@ -133,7 +134,7 @@ fn render_events(b: &mut String, state: &State) {
 
     let mut groups = HashMap::new();
 
-    for (offer, event) in &state.events {
+    for (offer, event) in events {
         let vec = groups.entry(offer.kind.clone()).or_insert_with(Vec::new);
         vec.push(event);
     }

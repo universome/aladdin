@@ -14,16 +14,18 @@ pub trait Gambler {
     fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Result<()>;
 }
 
+pub type BoxedGambler = Box<Gambler + Send + Sync>;
+
 macro_rules! gambler_map {
     ($host:expr, $( $pat:pat => $gambler:expr ),*) => {
         match $host {
-            $($pat => Box::new($gambler) as Box<Gambler + Send + Sync>,)*
+            $($pat => Box::new($gambler) as BoxedGambler,)*
             _ => panic!("There is no gambler for {}", $host)
         }
     }
 }
 
-pub fn new(host: &str) -> Box<Gambler + Send + Sync> {
+pub fn new(host: &str) -> BoxedGambler {
     gambler_map!(host,
         "egamingbets.com" => egamingbets::EGB::new(),
         "vitalbet.com" => vitalbet::VitalBet::new(),

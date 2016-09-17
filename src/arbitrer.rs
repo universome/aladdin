@@ -1,50 +1,57 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{self, Sender, Receiver};
-use std::sync::{RwLock, RwLockReadGuard};
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use crossbeam;
 
 use base::config::CONFIG;
 use base::currency::Currency;
 use events::{Offer, Outcome};
-use gamblers::{self, Gambler};
+use gamblers::{self, BoxedGambler};
 use opportunity::{self, Strategy, MarkedOutcome};
 
 pub struct Bookie {
     pub host: String,
+    active: AtomicBool,
+    balance: AtomicIsize,
     username: String,
     password: String,
-    gambler: Box<Gambler + Send + Sync>
+    gambler: BoxedGambler
+}
+
+impl Bookie {
+    pub fn active(&self) -> bool {
+        self.active.load(Ordering::Relaxed)
+    }
+
+    pub fn balance(&self) -> Currency {
+        Currency(self.balance.load(Ordering::Relaxed) as i64)
+    }
+
+    fn set_active(&self, active: bool) {
+         self.active.store(active, Ordering::Relaxed);
+    }
+
+    fn set_balance(&self, balance: Currency) {
+        self.balance.store(balance.0 as isize, Ordering::Relaxed);
+    }
 }
 
 pub struct MarkedOffer(pub &'static Bookie, pub Offer);
 pub type Event = Vec<MarkedOffer>;
-
-pub struct BookieInfo {
-    pub bookie: &'static Bookie,
-    pub balance: Currency,
-    pub active: bool
-}
-
-pub struct State {
-    pub events: HashMap<Offer, Event>,
-    pub bookies: Vec<BookieInfo>
-}
+pub type Events = HashMap<Offer, Event>;
 
 lazy_static! {
-    static ref BOOKIES: Vec<Bookie> = init_bookies();
-
-    static ref STATE: RwLock<State> = RwLock::new(State {
-        events: HashMap::new(),
-        bookies: BOOKIES.iter().map(|bookie| BookieInfo {
-            bookie: bookie,
-            balance: Currency(0),
-            active: false
-        }).collect()
-    });
+    pub static ref BOOKIES: Vec<Bookie> = init_bookies();
+    static ref EVENTS: RwLock<Events> = RwLock::new(HashMap::new());
 }
 
-pub fn acquire_state() -> RwLockReadGuard<'static, State> {
-    STATE.read().unwrap()
+pub fn acquire_events() -> RwLockReadGuard<'static, Events> {
+    EVENTS.read().unwrap()
+}
+
+fn acquire_events_mut() -> RwLockWriteGuard<'static, Events> {
+     EVENTS.write().unwrap()
 }
 
 pub fn run() {
@@ -52,11 +59,11 @@ pub fn run() {
     let (outgoing_tx, outgoing_rx) = mpsc::channel();
 
     crossbeam::scope(|scope| {
-        for bookie_id in 0..BOOKIES.len() {
+        for bookie in BOOKIES.iter() {
             let incoming_tx = incoming_tx.clone();
             let outgoing_tx = outgoing_tx.clone();
 
-            scope.spawn(move || run_gambler(bookie_id, incoming_tx, outgoing_tx));
+            scope.spawn(move || run_gambler(bookie, incoming_tx, outgoing_tx));
         }
 
         process_channels(incoming_rx, outgoing_rx);
@@ -80,6 +87,8 @@ fn init_bookies() -> Vec<Bookie> {
 
         bookies.push(Bookie {
             host: host.to_owned(),
+            active: AtomicBool::new(false),
+            balance: AtomicIsize::new(0),
             username: username.to_owned(),
             password: password.to_owned(),
             gambler: gamblers::new(host)
@@ -89,9 +98,9 @@ fn init_bookies() -> Vec<Bookie> {
     bookies
 }
 
-fn run_gambler(bookie_id: usize, incoming: Sender<MarkedOffer>, outgoing: Sender<MarkedOffer>) {
-    let bookie = &BOOKIES[bookie_id];
-
+fn run_gambler(bookie: &'static Bookie,
+               incoming: Sender<MarkedOffer>,
+               outgoing: Sender<MarkedOffer>) {
     // TODO(loyd): add error handling (don't forget about catching panics!).
     if let Err(error) = bookie.gambler.authorize(&bookie.username, &bookie.password) {
         error!("{} authorization: {}", bookie.host, error);
@@ -106,11 +115,8 @@ fn run_gambler(bookie_id: usize, incoming: Sender<MarkedOffer>, outgoing: Sender
         }
     };
 
-    {
-        let mut state = STATE.write().unwrap();
-        state.bookies[bookie_id].balance = balance;
-        state.bookies[bookie_id].active = true;
-    }
+    bookie.set_balance(balance);
+    bookie.set_active(true);
 
     let error = bookie.gambler.watch(&|offer, update| {
         let marked = MarkedOffer(bookie, offer);
@@ -124,31 +130,28 @@ fn run_gambler(bookie_id: usize, incoming: Sender<MarkedOffer>, outgoing: Sender
 
     error!("{}: {}", bookie.host, error);
 
-    {
-        let mut state = STATE.write().unwrap();
-        state.bookies[bookie_id].active = false;
-    }
+    bookie.set_active(false);
 }
 
 fn process_channels(incoming: Receiver<MarkedOffer>, outgoing: Receiver<MarkedOffer>) {
     loop {
         let marked = incoming.recv().unwrap();
         let key = marked.1.clone();
-        let mut state = STATE.write().unwrap();
+        let mut events = acquire_events_mut();
 
-        update_offer(&mut state.events, marked);
+        update_offer(&mut events, marked);
 
         while let Ok(marked) = outgoing.try_recv() {
-            remove_offer(&mut state.events, marked);
+            remove_offer(&mut events, marked);
         }
 
-        if let Some(event) = state.events.get(&key) {
+        if let Some(event) = events.get(&key) {
             realize_event(event);
         }
     }
 }
 
-fn remove_offer(events: &mut HashMap<Offer, Event>, marked: MarkedOffer) {
+fn remove_offer(events: &mut Events, marked: MarkedOffer) {
     let mut remove_event = false;
 
     if let Some(event) = events.get_mut(&marked.1) {
@@ -171,7 +174,7 @@ fn remove_offer(events: &mut HashMap<Offer, Event>, marked: MarkedOffer) {
     }
 }
 
-fn update_offer(events: &mut HashMap<Offer, Event>, marked: MarkedOffer) {
+fn update_offer(events: &mut Events, marked: MarkedOffer) {
     if events.contains_key(&marked.1) {
         let event = events.get_mut(&marked.1).unwrap();
 
