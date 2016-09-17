@@ -1,4 +1,4 @@
-#![feature(plugin, custom_derive)]
+#![feature(plugin, custom_derive, static_in_const)]
 #![plugin(serde_macros)]
 
 #[macro_use]
