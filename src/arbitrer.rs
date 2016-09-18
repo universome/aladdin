@@ -136,7 +136,7 @@ fn run_gambler(bookie: &'static Bookie,
 
     loop {
         if delay > 0 {
-            info!("Sleeping for {:2}:{:2}", delay / 60, delay % 60);
+            info!(target: module, "Sleeping for {:02}:{:02}", delay / 60, delay % 60);
             thread::sleep(Duration::new(delay, 0));
             delay *= 2;
         } else {
@@ -159,7 +159,7 @@ fn run_gambler(bookie: &'static Bookie,
             continue;
         }
 
-        info!(target: module, "Watching for events...");
+        info!(target: module, "Watching for offers...");
         bookie.set_active(true);
 
         if let Err(error) = bookie.gambler.watch(&|offer, update| {
@@ -184,6 +184,8 @@ fn regression(bookie: &Bookie) {
         .flat_map(|offers| offers.iter().filter(|o| o.0 == bookie))
         .cloned()
         .collect::<Vec<_>>();
+
+    info!("Regression of {}. Removing {} offers...", bookie.host, outdated.len());
 
     for marked in outdated {
         remove_offer(&mut events, marked);
