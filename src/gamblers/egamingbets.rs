@@ -176,7 +176,10 @@ impl Into<Result<Option<Offer>>> for Bet {
             "Smite" => Kind::Smite(Smite::Series),
             "StarCraft2" => Kind::StarCraft2(StarCraft2::Series),
             "WorldOfTanks" => Kind::WorldOfTanks(WorldOfTanks::Series),
-            _ => return Ok(None)
+            kind => {
+                warn!("Unknown kind: {}", kind);
+                return Ok(None);
+            }
         };
 
         let coef_1 = try!(self.coef_1.parse());
