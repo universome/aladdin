@@ -345,6 +345,9 @@ fn realize_event(event: &Event) {
             }
         } else if max_profit > *UPPER_PROFIT_THRESHOLD {
             warn!("Suspiciously high profit ({:+.1}%)", max_profit * 100.);
+        } else {
+             debug!("  Too small profit (min: {:+.1}%, max: {:+.1}%)",
+                    min_profit * 100., max_profit * 100.);
         }
     } else {
         debug!("  Opportunity doesn't exist (effective margin: {:.2})", margin);
@@ -412,11 +415,12 @@ fn place_bet(event: &Event, outcomes: &[MarkedOutcome]) {
         let bookie = event[marked.market].0;
         let offer = event[marked.market].1.clone();
         let outcome = marked.outcome.clone();
+        let bet_size = marked.rate * *BET_SIZE;
 
         thread::spawn(move || {
             let mut guard = Guard(bookie, false);
 
-            if let Err(error) = bookie.gambler.place_bet(offer, outcome, *BET_SIZE) {
+            if let Err(error) = bookie.gambler.place_bet(offer, outcome, bet_size) {
                 error!(target: bookie.module, "While placing bet: {}", error);
                 return;
             }
