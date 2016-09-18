@@ -39,6 +39,7 @@ impl Bookie {
     }
 }
 
+#[derive(Clone)]
 pub struct MarkedOffer(pub &'static Bookie, pub Offer);
 pub type Event = Vec<MarkedOffer>;
 pub type Events = HashMap<Offer, Event>;
@@ -108,15 +109,16 @@ fn run_gambler(bookie: &'static Bookie,
 
     impl Drop for Guard {
         fn drop(&mut self) {
-            self.0.set_active(false);
+            regression(self.0);
 
             if thread::panicking() {
-                error!(target: &self.0.host, "Terminated due to panic");
+                let target = target_from_host(&self.0.host);
+                error!(target: &target, "Terminated due to panic");
             }
         }
     }
 
-    let host = &bookie.host;
+    let target = &target_from_host(&bookie.host);
     let retry_delay = CONFIG.lookup("arbitrer.retry-delay")
         .and_then(|d| d.as_integer())
         .map(|d| 60 * d as u64)
@@ -135,21 +137,21 @@ fn run_gambler(bookie: &'static Bookie,
 
         let _guard = Guard(bookie);
 
-        info!(target: host, "Authorizating...");
+        info!(target: target, "Authorizating...");
 
         if let Err(error) = bookie.gambler.authorize(&bookie.username, &bookie.password) {
-            error!(target: host, "While authorizating: {}", error);
+            error!(target: target, "While authorizating: {}", error);
             continue;
         }
 
-        info!(target: host, "Checking balance...");
+        info!(target: target, "Checking balance...");
 
         if let Err(error) = bookie.gambler.check_balance().map(|b| bookie.set_balance(b)) {
-            error!(target: host, "While checking balance: {}", error);
+            error!(target: target, "While checking balance: {}", error);
             continue;
         }
 
-        info!(target: host, "Watching for events...");
+        info!(target: target, "Watching for events...");
         bookie.set_active(true);
 
         if let Err(error) = bookie.gambler.watch(&|offer, update| {
@@ -157,11 +159,32 @@ fn run_gambler(bookie: &'static Bookie,
             let chan = if update { &incoming } else { &outgoing };
             chan.send(marked).unwrap();
         }) {
-            error!(target: host, "While watching: {}", error);
+            error!(target: target, "While watching: {}", error);
             continue;
         }
 
         unreachable!();
+    }
+
+    fn target_from_host(host: &str) -> String {
+         let mut target = String::from(concat!(module_path!(), "::"));
+         target.push_str(host);
+         target
+    }
+}
+
+fn regression(bookie: &Bookie) {
+    let mut events = acquire_events_mut();
+
+    bookie.set_active(false);
+
+    let outdated = events.values()
+        .flat_map(|offers| offers.iter().filter(|o| o.0 as *const _ == bookie as *const _))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    for marked in outdated {
+        remove_offer(&mut events, marked);
     }
 }
 
