@@ -21,6 +21,12 @@ pub struct Bookie {
     gambler: BoxedGambler
 }
 
+impl PartialEq for Bookie {
+    fn eq(&self, other: &Bookie) -> bool {
+        self as *const _ == other as *const _
+    }
+}
+
 impl Bookie {
     pub fn active(&self) -> bool {
         self.active.load(Ordering::Relaxed)
@@ -179,7 +185,7 @@ fn regression(bookie: &Bookie) {
     bookie.set_active(false);
 
     let outdated = events.values()
-        .flat_map(|offers| offers.iter().filter(|o| o.0 as *const _ == bookie as *const _))
+        .flat_map(|offers| offers.iter().filter(|o| o.0 == bookie))
         .cloned()
         .collect::<Vec<_>>();
 
@@ -210,8 +216,7 @@ fn remove_offer(events: &mut Events, marked: MarkedOffer) {
     let mut remove_event = false;
 
     if let Some(event) = events.get_mut(&marked.1) {
-        let index = event.iter()
-            .position(|stored| stored.0 as *const _ == marked.0 as *const _);
+        let index = event.iter().position(|stored| stored.0 == marked.0);
 
         if let Some(index) = index {
             event.swap_remove(index);
@@ -232,9 +237,7 @@ fn remove_offer(events: &mut Events, marked: MarkedOffer) {
 fn update_offer(events: &mut Events, marked: MarkedOffer) {
     if events.contains_key(&marked.1) {
         let event = events.get_mut(&marked.1).unwrap();
-
-        let index = event.iter()
-            .position(|stored| stored.0 as *const _ == marked.0 as *const _);
+        let index = event.iter().position(|stored| stored.0 == marked.0);
 
         if let Some(index) = index {
             if marked.1.outcomes.len() != event[index].1.outcomes.len() {
