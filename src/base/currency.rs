@@ -27,7 +27,7 @@ impl Sub for Currency {
     }
 }
 
-macro_rules! impl_mul {
+macro_rules! impl_int_mul {
     ($num:path) => {
         impl Mul<$num> for Currency {
             type Output = Currency;
@@ -47,10 +47,41 @@ macro_rules! impl_mul {
     }
 }
 
-impl_mul!(i8);
-impl_mul!(i32);
-impl_mul!(i64);
-impl_mul!(isize);
+impl_int_mul!(i8);
+impl_int_mul!(i32);
+impl_int_mul!(i64);
+impl_int_mul!(isize);
+
+macro_rules! impl_float_mul {
+    ($num:path) => {
+        impl Mul<$num> for Currency {
+            type Output = Currency;
+
+            fn mul(self, rhs: $num) -> Currency {
+                if rhs.is_normal() {
+                    Currency((self.0 as $num * rhs).round() as i64)
+                } else {
+                    Currency(0)
+                }
+            }
+        }
+
+        impl Mul<Currency> for $num {
+            type Output = Currency;
+
+            fn mul(self, rhs: Currency) -> Currency {
+                if self.is_normal() {
+                    Currency((self * rhs.0 as $num).round() as i64)
+                } else {
+                    Currency(0)
+                }
+            }
+        }
+    }
+}
+
+impl_float_mul!(f32);
+impl_float_mul!(f64);
 
 macro_rules! impl_from {
     ($float:path) => {
@@ -87,6 +118,11 @@ fn test_multiplication() {
     assert_eq!(Currency(2) * -2, Currency(-4));
     assert_eq!(2 * Currency(2), Currency(4));
     assert_eq!(-2 * Currency(2), Currency(-4));
+
+    assert_eq!(Currency(2) * 2., Currency(4));
+    assert_eq!(1.5 * Currency(100), Currency(150));
+    assert_eq!(Currency(10) * 1.51, Currency(15));
+    assert_eq!(1.58 * Currency(10), Currency(16));
 }
 
 #[test]
