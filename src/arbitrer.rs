@@ -70,11 +70,12 @@ pub struct Bet {
 lazy_static! {
     pub static ref BOOKIES: Vec<Bookie> = init_bookies();
     static ref EVENTS: RwLock<Events> = RwLock::new(HashMap::new());
-    static ref HISTORY: RwLock<VecDeque<Combo>> = RwLock::new(VecDeque::new());
+    static ref COMBO_HISTORY: RwLock<VecDeque<Combo>> = RwLock::new(VecDeque::new());
 
+    // TODO(loyd): add getters to `config` module and refactor this.
     static ref BET_SIZE: Currency = CONFIG.lookup("arbitrer.bet-size")
         .unwrap().as_float().unwrap().into();
-    static ref HISTORY_SIZE: u32 = CONFIG.lookup("arbitrer.history-size")
+    static ref COMBO_HISTORY_SIZE: u32 = CONFIG.lookup("arbitrer.history-size")
         .unwrap().as_integer().unwrap() as u32 * 3600;
     static ref LOWER_PROFIT_THRESHOLD: f64 = CONFIG.lookup("arbitrer.lower-profit-threshold")
         .unwrap().as_float().unwrap();
@@ -90,12 +91,12 @@ fn acquire_events_mut() -> RwLockWriteGuard<'static, Events> {
     EVENTS.write().unwrap()
 }
 
-pub fn acquire_history() -> RwLockReadGuard<'static, VecDeque<Combo>> {
-    HISTORY.read().unwrap()
+pub fn acquire_combo_history() -> RwLockReadGuard<'static, VecDeque<Combo>> {
+    COMBO_HISTORY.read().unwrap()
 }
 
-fn acquire_history_mut() -> RwLockWriteGuard<'static, VecDeque<Combo>> {
-    HISTORY.write().unwrap()
+fn acquire_combo_history_mut() -> RwLockWriteGuard<'static, VecDeque<Combo>> {
+    COMBO_HISTORY.write().unwrap()
 }
 
 pub fn run() {
@@ -367,16 +368,16 @@ fn sort_outcomes_by_coef(outcomes: &[Outcome]) -> Vec<&Outcome> {
 }
 
 fn no_bets_on_event(event: &Event) -> bool {
-    let history = acquire_history();
+    let history = acquire_combo_history();
     history.iter().position(|c| c.head == event[0].1).is_none()
 }
 
 fn add_combo(event: &Event, outcomes: &[MarkedOutcome]) {
-    let mut history = acquire_history_mut();
+    let mut history = acquire_combo_history_mut();
     let now = time::get_time().sec as u32;
 
     // Remove outdated combos.
-    while history.front().map_or(false, |c| c.date + *HISTORY_SIZE <= now) {
+    while history.front().map_or(false, |c| c.date + *COMBO_HISTORY_SIZE <= now) {
         let front = history.pop_front().unwrap();
         debug!("Drop out combo for {}", front.head);
     }
