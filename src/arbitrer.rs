@@ -56,6 +56,13 @@ pub type Events = HashMap<Offer, Event>;
 lazy_static! {
     pub static ref BOOKIES: Vec<Bookie> = init_bookies();
     static ref EVENTS: RwLock<Events> = RwLock::new(HashMap::new());
+
+    static ref BET_SIZE: Currency = CONFIG.lookup("arbitrer.bet-size")
+        .unwrap().as_float().unwrap().into();
+    static ref LOWER_PROFIT_THRESHOLD: f64 = CONFIG.lookup("arbitrer.lower-profit-threshold")
+        .unwrap().as_float().unwrap();
+    static ref UPPER_PROFIT_THRESHOLD: f64 = CONFIG.lookup("arbitrer.upper-profit-threshold")
+        .unwrap().as_float().unwrap();
 }
 
 pub fn acquire_events() -> RwLockReadGuard<'static, Events> {
@@ -285,13 +292,25 @@ fn realize_event(event: &Event) {
 
     if margin < 1. {
         let outcomes = opportunity::find_best(&table, Strategy::Unbiased);
+        let mut min_profit = 0.;
+        let mut max_profit = 0.;
 
         info!("  Opportunity exists (effective margin: {:.2}), unbiased strategy:", margin);
 
-        for MarkedOutcome { market, outcome, rate, profit } in outcomes {
+        for &MarkedOutcome { market, outcome, rate, profit } in &outcomes {
             let host = &event[market].0.host;
+
             info!("    Place {:.2} on {} by {} (coef: x{:.2}, profit: {:+.1}%)",
                   rate, outcome.0, host, outcome.1, profit * 100.);
+
+            if profit < min_profit { min_profit = profit }
+            if profit > max_profit { max_profit = profit }
+        }
+
+        if *LOWER_PROFIT_THRESHOLD <= min_profit && min_profit <= *UPPER_PROFIT_THRESHOLD {
+            place_bet(event, outcomes);
+        } else if max_profit > *UPPER_PROFIT_THRESHOLD {
+            warn!("Suspiciously high profit ({:+.1}%)", max_profit * 100.);
         }
     } else {
         debug!("  Opportunity doesn't exist (effective margin: {:.2})", margin);
@@ -313,3 +332,29 @@ fn sort_outcomes_by_coef(outcomes: &[Outcome]) -> Vec<&Outcome> {
 
     result
 }
+
+#[cfg(feature = "place-bets")]
+fn place_bet(event: &Event, outcomes: Vec<MarkedOutcome>) {
+    for marked in outcomes {
+        let bookie = event[marked.market].0;
+        let offer = event[marked.market].1.clone();
+        let outcome = marked.outcome.clone();
+
+        thread::spawn(move || {
+            if let Err(error) = bookie.gambler.place_bet(offer, outcome, *BET_SIZE) {
+                error!(target: bookie.module, "While placing bet: {}", error);
+                regression(bookie);
+                return;
+            }
+
+            if let Err(error) = bookie.gambler.check_balance().map(|b| bookie.set_balance(b)) {
+                error!(target: bookie.module, "While checking balance: {}", error);
+                regression(bookie);
+                return;
+            }
+        });
+    }
+}
+
+#[cfg(not(feature = "place-bets"))]
+fn place_bet(_: &Event, _: Vec<MarkedOutcome>) {}

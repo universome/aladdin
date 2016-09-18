@@ -2,7 +2,11 @@
 history-size = 20
 
 [arbitrer]
-retry-delay = 60 # [min]
+retry-delay = 60    # [min]
+bet-size = 1.       # [$]
+
+lower-profit-threshold = 0.01
+upper-profit-threshold = 0.05
 
 [server]
 port = 3000
