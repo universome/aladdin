@@ -172,6 +172,11 @@ fn run_gambler(bookie: &'static Bookie,
         bookie.set_active(true);
 
         if let Err(error) = bookie.gambler.watch(&|offer, update| {
+            // If errors occured at the time of betting.
+            if !bookie.active() {
+                panic!("Some error occured while betting");
+            }
+
             let marked = MarkedOffer(bookie, offer);
             let chan = if update { &incoming } else { &outgoing };
             chan.send(marked).unwrap();
@@ -335,23 +340,35 @@ fn sort_outcomes_by_coef(outcomes: &[Outcome]) -> Vec<&Outcome> {
 
 #[cfg(feature = "place-bets")]
 fn place_bet(event: &Event, outcomes: Vec<MarkedOutcome>) {
+    struct Guard(&'static Bookie, bool);
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            if !self.1 {
+                regression(self.0);
+            }
+        }
+    }
+
     for marked in outcomes {
         let bookie = event[marked.market].0;
         let offer = event[marked.market].1.clone();
         let outcome = marked.outcome.clone();
 
         thread::spawn(move || {
+            let mut guard = Guard(bookie, false);
+
             if let Err(error) = bookie.gambler.place_bet(offer, outcome, *BET_SIZE) {
                 error!(target: bookie.module, "While placing bet: {}", error);
-                regression(bookie);
                 return;
             }
 
             if let Err(error) = bookie.gambler.check_balance().map(|b| bookie.set_balance(b)) {
                 error!(target: bookie.module, "While checking balance: {}", error);
-                regression(bookie);
                 return;
             }
+
+            guard.1 = true;
         });
     }
 }
