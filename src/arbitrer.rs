@@ -1,12 +1,13 @@
 use std::thread;
 use std::cmp::Ordering;
 use std::time::Duration;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicIsize};
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::mpsc::{self, Sender, Receiver};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use crossbeam;
+use time;
 
 use base::config::CONFIG;
 use base::currency::Currency;
@@ -53,12 +54,28 @@ pub struct MarkedOffer(pub &'static Bookie, pub Offer);
 pub type Event = Vec<MarkedOffer>;
 pub type Events = HashMap<Offer, Event>;
 
+pub struct Combo {
+    pub date: u32,
+    pub head: Offer,
+    pub bets: Vec<Bet>
+}
+
+pub struct Bet {
+    pub bookie: &'static Bookie,
+    pub outcome: Outcome,
+    pub size: Currency,
+    pub profit: f64
+}
+
 lazy_static! {
     pub static ref BOOKIES: Vec<Bookie> = init_bookies();
     static ref EVENTS: RwLock<Events> = RwLock::new(HashMap::new());
+    static ref HISTORY: RwLock<VecDeque<Combo>> = RwLock::new(VecDeque::new());
 
     static ref BET_SIZE: Currency = CONFIG.lookup("arbitrer.bet-size")
         .unwrap().as_float().unwrap().into();
+    static ref HISTORY_SIZE: u32 = CONFIG.lookup("arbitrer.history-size")
+        .unwrap().as_integer().unwrap() as u32 * 3600;
     static ref LOWER_PROFIT_THRESHOLD: f64 = CONFIG.lookup("arbitrer.lower-profit-threshold")
         .unwrap().as_float().unwrap();
     static ref UPPER_PROFIT_THRESHOLD: f64 = CONFIG.lookup("arbitrer.upper-profit-threshold")
@@ -70,7 +87,15 @@ pub fn acquire_events() -> RwLockReadGuard<'static, Events> {
 }
 
 fn acquire_events_mut() -> RwLockWriteGuard<'static, Events> {
-     EVENTS.write().unwrap()
+    EVENTS.write().unwrap()
+}
+
+pub fn acquire_history() -> RwLockReadGuard<'static, VecDeque<Combo>> {
+    HISTORY.read().unwrap()
+}
+
+fn acquire_history_mut() -> RwLockWriteGuard<'static, VecDeque<Combo>> {
+    HISTORY.write().unwrap()
 }
 
 pub fn run() {
@@ -313,7 +338,10 @@ fn realize_event(event: &Event) {
         }
 
         if *LOWER_PROFIT_THRESHOLD <= min_profit && min_profit <= *UPPER_PROFIT_THRESHOLD {
-            place_bet(event, outcomes);
+            if no_bets_on_event(event) {
+                add_combo(event, &outcomes);
+                place_bet(event, &outcomes);
+            }
         } else if max_profit > *UPPER_PROFIT_THRESHOLD {
             warn!("Suspiciously high profit ({:+.1}%)", max_profit * 100.);
         }
@@ -338,8 +366,37 @@ fn sort_outcomes_by_coef(outcomes: &[Outcome]) -> Vec<&Outcome> {
     result
 }
 
+fn no_bets_on_event(event: &Event) -> bool {
+    let history = acquire_history();
+    history.iter().position(|c| c.head == event[0].1).is_none()
+}
+
+fn add_combo(event: &Event, outcomes: &[MarkedOutcome]) {
+    let mut history = acquire_history_mut();
+    let now = time::get_time().sec as u32;
+
+    // Remove outdated combos.
+    while history.front().map_or(false, |c| c.date + *HISTORY_SIZE <= now) {
+        let front = history.pop_front().unwrap();
+        debug!("Drop out combo for {}", front.head);
+    }
+
+    debug!("New combo for {}", event[0].1);
+
+    history.push_back(Combo {
+        date: now,
+        head: event[0].1.clone(),
+        bets: outcomes.iter().map(|m| Bet {
+            bookie: event[m.market].0,
+            outcome: m.outcome.clone(),
+            size: m.rate * *BET_SIZE,
+            profit: m.profit
+        }).collect()
+    });
+}
+
 #[cfg(feature = "place-bets")]
-fn place_bet(event: &Event, outcomes: Vec<MarkedOutcome>) {
+fn place_bet(event: &Event, outcomes: &[MarkedOutcome]) {
     struct Guard(&'static Bookie, bool);
 
     impl Drop for Guard {
@@ -374,4 +431,4 @@ fn place_bet(event: &Event, outcomes: Vec<MarkedOutcome>) {
 }
 
 #[cfg(not(feature = "place-bets"))]
-fn place_bet(_: &Event, _: Vec<MarkedOutcome>) {}
+fn place_bet(_: &Event, _: &[MarkedOutcome]) {}
