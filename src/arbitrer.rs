@@ -1,3 +1,5 @@
+use std::thread;
+use std::time::Duration;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{self, Sender, Receiver};
@@ -100,37 +102,67 @@ fn init_bookies() -> Vec<Bookie> {
 
 fn run_gambler(bookie: &'static Bookie,
                incoming: Sender<MarkedOffer>,
-               outgoing: Sender<MarkedOffer>) {
-    // TODO(loyd): add error handling (don't forget about catching panics!).
-    if let Err(error) = bookie.gambler.authorize(&bookie.username, &bookie.password) {
-        error!("{} authorization: {}", bookie.host, error);
-        return;
+               outgoing: Sender<MarkedOffer>)
+{
+    struct Guard(&'static Bookie);
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            self.0.set_active(false);
+
+            if thread::panicking() {
+                error!(target: &self.0.host, "Terminated due to panic");
+            }
+        }
     }
 
-    let balance = match bookie.gambler.check_balance() {
-        Ok(balance) => balance,
-        Err(error) => {
-            error!("{} balance checking: {}", bookie.host, error);
-            return;
-        }
-    };
+    let host = &bookie.host;
+    let retry_delay = CONFIG.lookup("arbitrer.retry-delay")
+        .and_then(|d| d.as_integer())
+        .map(|d| 60 * d as u64)
+        .unwrap();
 
-    bookie.set_balance(balance);
-    bookie.set_active(true);
+    let mut delay = 0;
 
-    let error = bookie.gambler.watch(&|offer, update| {
-        let marked = MarkedOffer(bookie, offer);
-
-        if update {
-            incoming.send(marked).unwrap();
+    loop {
+        if delay > 0 {
+            info!("Sleeping for {:2}:{:2}", delay / 60, delay % 60);
+            thread::sleep(Duration::new(delay, 0));
+            delay *= 2;
         } else {
-            outgoing.send(marked).unwrap();
+            delay = retry_delay;
         }
-    }).unwrap_err();
 
-    error!("{}: {}", bookie.host, error);
+        let _guard = Guard(bookie);
 
-    bookie.set_active(false);
+        info!(target: host, "Authorizating...");
+
+        if let Err(error) = bookie.gambler.authorize(&bookie.username, &bookie.password) {
+            error!(target: host, "While authorizating: {}", error);
+            continue;
+        }
+
+        info!(target: host, "Checking balance...");
+
+        if let Err(error) = bookie.gambler.check_balance().map(|b| bookie.set_balance(b)) {
+            error!(target: host, "While checking balance: {}", error);
+            continue;
+        }
+
+        info!(target: host, "Watching for events...");
+        bookie.set_active(true);
+
+        if let Err(error) = bookie.gambler.watch(&|offer, update| {
+            let marked = MarkedOffer(bookie, offer);
+            let chan = if update { &incoming } else { &outgoing };
+            chan.send(marked).unwrap();
+        }) {
+            error!(target: host, "While watching: {}", error);
+            continue;
+        }
+
+        unreachable!();
+    }
 }
 
 fn process_channels(incoming: Receiver<MarkedOffer>, outgoing: Receiver<MarkedOffer>) {
