@@ -18,6 +18,7 @@ pub struct Bookie {
     balance: AtomicIsize,
     username: String,
     password: String,
+    module: &'static str,
     gambler: BoxedGambler
 }
 
@@ -93,6 +94,7 @@ fn init_bookies() -> Vec<Bookie> {
         let host = item.lookup("host").unwrap().as_str().unwrap();
         let username = item.lookup("username").unwrap().as_str().unwrap();
         let password = item.lookup("password").unwrap().as_str().unwrap();
+        let (module, gambler) = gamblers::new(host);
 
         bookies.push(Bookie {
             host: host.to_owned(),
@@ -100,7 +102,8 @@ fn init_bookies() -> Vec<Bookie> {
             balance: AtomicIsize::new(0),
             username: username.to_owned(),
             password: password.to_owned(),
-            gambler: gamblers::new(host)
+            module: module,
+            gambler: gambler
         });
     }
 
@@ -118,13 +121,12 @@ fn run_gambler(bookie: &'static Bookie,
             regression(self.0);
 
             if thread::panicking() {
-                let target = target_from_host(&self.0.host);
-                error!(target: &target, "Terminated due to panic");
+                error!(target: self.0.module, "Terminated due to panic");
             }
         }
     }
 
-    let target = &target_from_host(&bookie.host);
+    let module = bookie.module;
     let retry_delay = CONFIG.lookup("arbitrer.retry-delay")
         .and_then(|d| d.as_integer())
         .map(|d| 60 * d as u64)
@@ -143,21 +145,21 @@ fn run_gambler(bookie: &'static Bookie,
 
         let _guard = Guard(bookie);
 
-        info!(target: target, "Authorizating...");
+        info!(target: module, "Authorizating...");
 
         if let Err(error) = bookie.gambler.authorize(&bookie.username, &bookie.password) {
-            error!(target: target, "While authorizating: {}", error);
+            error!(target: module, "While authorizating: {}", error);
             continue;
         }
 
-        info!(target: target, "Checking balance...");
+        info!(target: module, "Checking balance...");
 
         if let Err(error) = bookie.gambler.check_balance().map(|b| bookie.set_balance(b)) {
-            error!(target: target, "While checking balance: {}", error);
+            error!(target: module, "While checking balance: {}", error);
             continue;
         }
 
-        info!(target: target, "Watching for events...");
+        info!(target: module, "Watching for events...");
         bookie.set_active(true);
 
         if let Err(error) = bookie.gambler.watch(&|offer, update| {
@@ -165,17 +167,11 @@ fn run_gambler(bookie: &'static Bookie,
             let chan = if update { &incoming } else { &outgoing };
             chan.send(marked).unwrap();
         }) {
-            error!(target: target, "While watching: {}", error);
+            error!(target: module, "While watching: {}", error);
             continue;
         }
 
         unreachable!();
-    }
-
-    fn target_from_host(host: &str) -> String {
-         let mut target = String::from(concat!(module_path!(), "::"));
-         target.push_str(host);
-         target
     }
 }
 

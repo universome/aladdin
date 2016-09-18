@@ -17,19 +17,22 @@ pub trait Gambler {
 pub type BoxedGambler = Box<Gambler + Send + Sync>;
 
 macro_rules! gambler_map {
-    ($host:expr, $( $pat:pat => $gambler:expr ),*) => {
+    ($host:expr, $( $pat:pat => $module:ident::$gambler:ident ),*) => {
         match $host {
-            $($pat => Box::new($gambler) as BoxedGambler,)*
+            $($pat => (
+                concat!(module_path!(), "::", stringify!($module)),
+                Box::new($module::$gambler::new()) as BoxedGambler
+            ),)*
             _ => panic!("There is no gambler for {}", $host)
         }
     }
 }
 
-pub fn new(host: &str) -> BoxedGambler {
+pub fn new(host: &str) -> (&str, BoxedGambler) {
     gambler_map!(host,
-        "egamingbets.com" => egamingbets::EGB::new(),
-        "vitalbet.com" => vitalbet::VitalBet::new(),
-        "1xsporta.space" => xsporta::XBet::new(),
-        "cybbet.com" => cybbet::CybBet::new()
+        "egamingbets.com" => egamingbets::EGB,
+        "vitalbet.com" => vitalbet::VitalBet,
+        "1xsporta.space" => xsporta::XBet,
+        "cybbet.com" => cybbet::CybBet
     )
 }
