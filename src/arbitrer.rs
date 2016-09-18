@@ -1,14 +1,16 @@
 use std::thread;
+use std::cmp::Ordering;
 use std::time::Duration;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize};
+use std::sync::atomic::Ordering::Relaxed;
 use std::sync::mpsc::{self, Sender, Receiver};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use crossbeam;
 
 use base::config::CONFIG;
 use base::currency::Currency;
-use events::{Offer, Outcome};
+use events::{Offer, Outcome, DRAW};
 use gamblers::{self, BoxedGambler};
 use opportunity::{self, Strategy, MarkedOutcome};
 
@@ -30,19 +32,19 @@ impl PartialEq for Bookie {
 
 impl Bookie {
     pub fn active(&self) -> bool {
-        self.active.load(Ordering::Relaxed)
+        self.active.load(Relaxed)
     }
 
     pub fn balance(&self) -> Currency {
-        Currency(self.balance.load(Ordering::Relaxed) as i64)
+        Currency(self.balance.load(Relaxed) as i64)
     }
 
     fn set_active(&self, active: bool) {
-         self.active.store(active, Ordering::Relaxed);
+         self.active.store(active, Relaxed);
     }
 
     fn set_balance(&self, balance: Currency) {
-        self.balance.store(balance.0 as isize, Ordering::Relaxed);
+        self.balance.store(balance.0 as isize, Relaxed);
     }
 }
 
@@ -298,6 +300,16 @@ fn realize_event(event: &Event) {
 
 fn sort_outcomes_by_coef(outcomes: &[Outcome]) -> Vec<&Outcome> {
     let mut result = outcomes.iter().collect::<Vec<_>>();
-    result.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+    result.sort_by(|a, b| {
+       if a.0 == DRAW {
+           Ordering::Greater
+       } else if b.0 == DRAW {
+           Ordering::Less
+       } else {
+           a.1.partial_cmp(&b.1).unwrap()
+       }
+    });
+
     result
 }
