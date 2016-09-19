@@ -168,7 +168,8 @@ struct Match {
     PreviewOdds: Option<Vec<Odd>>,
     IsActive: Option<bool>,
     IsFinished: Option<bool>,
-    Category: Option<Category>
+    Category: Option<Category>,
+    PreviewMarket: Option<Market>
 }
 
 #[derive(Deserialize, Debug)]
@@ -182,6 +183,11 @@ struct Odd {
 #[derive(Deserialize, Debug)]
 struct Category {
     ID: u32,
+    Name: String
+}
+
+#[derive(Deserialize, Debug)]
+struct Market {
     Name: String
 }
 
@@ -278,12 +284,23 @@ fn convert_prematch_match_update(update: PrematchMatchUpdate) -> Match {
         IsFinished: None,
         PreviewOdds: None,
         IsActive: None,
-        Category: None
+        Category: None,
+        PreviewMarket: None
     }
 }
 
 fn convert_match_into_offer(match_: &Match) -> Result<Option<Offer>> {
     let kind = get_kind_from_match(&match_);
+
+    // Currently, we are interested only in a single market type
+    match match_.PreviewMarket {
+        Some(ref market) => {
+            if market.Name != "Match Odds" {
+                return Ok(None);
+            }
+        },
+        None => unreachable!()
+    }
 
     if match_.IsSuspended || !match_.IsActive.unwrap_or(true) || kind.is_none() {
         return Ok(None);
