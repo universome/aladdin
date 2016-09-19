@@ -323,7 +323,7 @@ fn realize_event(event: &Event) {
 
     if margin < 1. {
         let outcomes = opportunity::find_best(&table, Strategy::Unbiased);
-        let mut min_profit = 0.;
+        let mut min_profit = 1. / 0.;
         let mut max_profit = 0.;
 
         info!("  Opportunity exists (effective margin: {:.2}), unbiased strategy:", margin);
