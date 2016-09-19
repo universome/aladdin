@@ -2,7 +2,7 @@
 history-size = 20
 
 [arbitrer]
-retry-delay = 60    # [minutes]
+retry-delay = 30    # [minutes]
 bet-size = 5.00     # [$]
 history-size = 48   # [hours]
 
