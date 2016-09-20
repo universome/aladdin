@@ -1,50 +1,67 @@
+use std::thread;
+use std::time::Duration;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{self, Sender, Receiver};
-use std::sync::{RwLock, RwLockReadGuard};
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use crossbeam;
 
 use base::config::CONFIG;
 use base::currency::Currency;
 use events::{Offer, Outcome};
-use gamblers::{self, Gambler};
+use gamblers::{self, BoxedGambler};
 use opportunity::{self, Strategy, MarkedOutcome};
 
 pub struct Bookie {
     pub host: String,
+    active: AtomicBool,
+    balance: AtomicIsize,
     username: String,
     password: String,
-    gambler: Box<Gambler + Send + Sync>
+    module: &'static str,
+    gambler: BoxedGambler
 }
 
+impl PartialEq for Bookie {
+    fn eq(&self, other: &Bookie) -> bool {
+        self as *const _ == other as *const _
+    }
+}
+
+impl Bookie {
+    pub fn active(&self) -> bool {
+        self.active.load(Ordering::Relaxed)
+    }
+
+    pub fn balance(&self) -> Currency {
+        Currency(self.balance.load(Ordering::Relaxed) as i64)
+    }
+
+    fn set_active(&self, active: bool) {
+         self.active.store(active, Ordering::Relaxed);
+    }
+
+    fn set_balance(&self, balance: Currency) {
+        self.balance.store(balance.0 as isize, Ordering::Relaxed);
+    }
+}
+
+#[derive(Clone)]
 pub struct MarkedOffer(pub &'static Bookie, pub Offer);
 pub type Event = Vec<MarkedOffer>;
-
-pub struct BookieInfo {
-    pub bookie: &'static Bookie,
-    pub balance: Currency,
-    pub active: bool
-}
-
-pub struct State {
-    pub events: HashMap<Offer, Event>,
-    pub bookies: Vec<BookieInfo>
-}
+pub type Events = HashMap<Offer, Event>;
 
 lazy_static! {
-    static ref BOOKIES: Vec<Bookie> = init_bookies();
-
-    static ref STATE: RwLock<State> = RwLock::new(State {
-        events: HashMap::new(),
-        bookies: BOOKIES.iter().map(|bookie| BookieInfo {
-            bookie: bookie,
-            balance: Currency(0),
-            active: false
-        }).collect()
-    });
+    pub static ref BOOKIES: Vec<Bookie> = init_bookies();
+    static ref EVENTS: RwLock<Events> = RwLock::new(HashMap::new());
 }
 
-pub fn acquire_state() -> RwLockReadGuard<'static, State> {
-    STATE.read().unwrap()
+pub fn acquire_events() -> RwLockReadGuard<'static, Events> {
+    EVENTS.read().unwrap()
+}
+
+fn acquire_events_mut() -> RwLockWriteGuard<'static, Events> {
+     EVENTS.write().unwrap()
 }
 
 pub fn run() {
@@ -52,11 +69,11 @@ pub fn run() {
     let (outgoing_tx, outgoing_rx) = mpsc::channel();
 
     crossbeam::scope(|scope| {
-        for bookie_id in 0..BOOKIES.len() {
+        for bookie in BOOKIES.iter() {
             let incoming_tx = incoming_tx.clone();
             let outgoing_tx = outgoing_tx.clone();
 
-            scope.spawn(move || run_gambler(bookie_id, incoming_tx, outgoing_tx));
+            scope.spawn(move || run_gambler(bookie, incoming_tx, outgoing_tx));
         }
 
         process_channels(incoming_rx, outgoing_rx);
@@ -77,56 +94,101 @@ fn init_bookies() -> Vec<Bookie> {
         let host = item.lookup("host").unwrap().as_str().unwrap();
         let username = item.lookup("username").unwrap().as_str().unwrap();
         let password = item.lookup("password").unwrap().as_str().unwrap();
+        let (module, gambler) = gamblers::new(host);
 
         bookies.push(Bookie {
             host: host.to_owned(),
+            active: AtomicBool::new(false),
+            balance: AtomicIsize::new(0),
             username: username.to_owned(),
             password: password.to_owned(),
-            gambler: gamblers::new(host)
+            module: module,
+            gambler: gambler
         });
     }
 
     bookies
 }
 
-fn run_gambler(bookie_id: usize, incoming: Sender<MarkedOffer>, outgoing: Sender<MarkedOffer>) {
-    let bookie = &BOOKIES[bookie_id];
+fn run_gambler(bookie: &'static Bookie,
+               incoming: Sender<MarkedOffer>,
+               outgoing: Sender<MarkedOffer>)
+{
+    struct Guard(&'static Bookie);
 
-    // TODO(loyd): add error handling (don't forget about catching panics!).
-    if let Err(error) = bookie.gambler.authorize(&bookie.username, &bookie.password) {
-        error!("{} authorization: {}", bookie.host, error);
-        return;
-    }
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            regression(self.0);
 
-    let balance = match bookie.gambler.check_balance() {
-        Ok(balance) => balance,
-        Err(error) => {
-            error!("{} balance checking: {}", bookie.host, error);
-            return;
+            if thread::panicking() {
+                error!(target: self.0.module, "Terminated due to panic");
+            }
         }
-    };
-
-    {
-        let mut state = STATE.write().unwrap();
-        state.bookies[bookie_id].balance = balance;
-        state.bookies[bookie_id].active = true;
     }
 
-    let error = bookie.gambler.watch(&|offer, update| {
-        let marked = MarkedOffer(bookie, offer);
+    let module = bookie.module;
+    let retry_delay = CONFIG.lookup("arbitrer.retry-delay")
+        .and_then(|d| d.as_integer())
+        .map(|d| 60 * d as u64)
+        .unwrap();
 
-        if update {
-            incoming.send(marked).unwrap();
+    let mut delay = 0;
+
+    loop {
+        if delay > 0 {
+            info!(target: module, "Sleeping for {:02}:{:02}", delay / 60, delay % 60);
+            thread::sleep(Duration::new(delay, 0));
+            delay *= 2;
         } else {
-            outgoing.send(marked).unwrap();
+            delay = retry_delay;
         }
-    }).unwrap_err();
 
-    error!("{}: {}", bookie.host, error);
+        let _guard = Guard(bookie);
 
-    {
-        let mut state = STATE.write().unwrap();
-        state.bookies[bookie_id].active = false;
+        info!(target: module, "Authorizating...");
+
+        if let Err(error) = bookie.gambler.authorize(&bookie.username, &bookie.password) {
+            error!(target: module, "While authorizating: {}", error);
+            continue;
+        }
+
+        info!(target: module, "Checking balance...");
+
+        if let Err(error) = bookie.gambler.check_balance().map(|b| bookie.set_balance(b)) {
+            error!(target: module, "While checking balance: {}", error);
+            continue;
+        }
+
+        info!(target: module, "Watching for offers...");
+        bookie.set_active(true);
+
+        if let Err(error) = bookie.gambler.watch(&|offer, update| {
+            let marked = MarkedOffer(bookie, offer);
+            let chan = if update { &incoming } else { &outgoing };
+            chan.send(marked).unwrap();
+        }) {
+            error!(target: module, "While watching: {}", error);
+            continue;
+        }
+
+        unreachable!();
+    }
+}
+
+fn regression(bookie: &Bookie) {
+    let mut events = acquire_events_mut();
+
+    bookie.set_active(false);
+
+    let outdated = events.values()
+        .flat_map(|offers| offers.iter().filter(|o| o.0 == bookie))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    info!("Regression of {}. Removing {} offers...", bookie.host, outdated.len());
+
+    for marked in outdated {
+        remove_offer(&mut events, marked);
     }
 }
 
@@ -134,26 +196,25 @@ fn process_channels(incoming: Receiver<MarkedOffer>, outgoing: Receiver<MarkedOf
     loop {
         let marked = incoming.recv().unwrap();
         let key = marked.1.clone();
-        let mut state = STATE.write().unwrap();
+        let mut events = acquire_events_mut();
 
-        update_offer(&mut state.events, marked);
+        update_offer(&mut events, marked);
 
         while let Ok(marked) = outgoing.try_recv() {
-            remove_offer(&mut state.events, marked);
+            remove_offer(&mut events, marked);
         }
 
-        if let Some(event) = state.events.get(&key) {
+        if let Some(event) = events.get(&key) {
             realize_event(event);
         }
     }
 }
 
-fn remove_offer(events: &mut HashMap<Offer, Event>, marked: MarkedOffer) {
+fn remove_offer(events: &mut Events, marked: MarkedOffer) {
     let mut remove_event = false;
 
     if let Some(event) = events.get_mut(&marked.1) {
-        let index = event.iter()
-            .position(|stored| stored.0 as *const _ == marked.0 as *const _);
+        let index = event.iter().position(|stored| stored.0 == marked.0);
 
         if let Some(index) = index {
             event.swap_remove(index);
@@ -171,12 +232,10 @@ fn remove_offer(events: &mut HashMap<Offer, Event>, marked: MarkedOffer) {
     }
 }
 
-fn update_offer(events: &mut HashMap<Offer, Event>, marked: MarkedOffer) {
+fn update_offer(events: &mut Events, marked: MarkedOffer) {
     if events.contains_key(&marked.1) {
         let event = events.get_mut(&marked.1).unwrap();
-
-        let index = event.iter()
-            .position(|stored| stored.0 as *const _ == marked.0 as *const _);
+        let index = event.iter().position(|stored| stored.0 == marked.0);
 
         if let Some(index) = index {
             if marked.1.outcomes.len() != event[index].1.outcomes.len() {

@@ -1,6 +1,9 @@
 [logging]
 history-size = 20
 
+[arbitrer]
+retry-delay = 60 # [min]
+
 [server]
 port = 3000
 
