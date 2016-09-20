@@ -6,6 +6,7 @@ mod egamingbets;
 mod vitalbet;
 mod xsporta;
 mod cybbet;
+mod betway;
 
 pub trait Gambler {
     fn authorize(&self, username: &str, password: &str) -> Result<()>;
@@ -33,6 +34,7 @@ pub fn new(host: &str) -> (&str, BoxedGambler) {
         "egamingbets.com" => egamingbets::EGB,
         "vitalbet.com" => vitalbet::VitalBet,
         "1xsporta.space" => xsporta::XBet,
-        "cybbet.com" => cybbet::CybBet
+        "cybbet.com" => cybbet::CybBet,
+        "betway.com" => betway::BetWay
     )
 }

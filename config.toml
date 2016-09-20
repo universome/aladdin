@@ -37,3 +37,8 @@ host = "unikrn.com"
 username = "shmaladdin.rs@gmail.com"
 password = "aladdin571"
 enabled = false
+
+[[bookies]]
+host = "betway.com"
+username = "shmaladdin"
+password = "aladdin"
