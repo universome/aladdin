@@ -65,6 +65,18 @@ impl Session {
         Ok(try!(kuchiki::parse_html().from_http(response)))
     }
 
+    pub fn get_raw_html(&self, path: &str) -> Result<String> {
+        let mut headers = Headers::new();
+        headers.set(Accept(vec![qitem(mime!(Text/Html))]));
+
+        let mut response = try!(self.get(path, headers));
+        let mut string = String::new();
+
+        try!(response.read_to_string(&mut string));
+
+        Ok(string)
+    }
+
     pub fn get_json<T: Deserialize>(&self, path: &str) -> Result<T> {
         let mut headers = Headers::new();
         headers.set(Accept(vec![qitem(mime!(Application/Json))]));
