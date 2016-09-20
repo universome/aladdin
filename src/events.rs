@@ -119,7 +119,7 @@ impl Hash for Offer {
     }
 }
 
-fn fuzzy_eq(lhs: &str, rhs: &str) -> bool {
+pub fn fuzzy_eq(lhs: &str, rhs: &str) -> bool {
     let left = lhs.chars().filter(|c| c.is_alphabetic());
     let right = rhs.chars().filter(|c| c.is_alphabetic());
 

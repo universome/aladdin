@@ -11,7 +11,7 @@ use time;
 
 use base::config::CONFIG;
 use base::currency::Currency;
-use events::{Offer, Outcome, DRAW};
+use events::{Offer, Outcome, DRAW, fuzzy_eq};
 use gamblers::{self, BoxedGambler};
 use opportunity::{self, Strategy, MarkedOutcome};
 
@@ -309,11 +309,16 @@ fn realize_event(event: &Event) {
         return;
     }
 
-    let mut table = Vec::with_capacity(event.len());
+    let mut table: Vec<Vec<_>> = Vec::with_capacity(event.len());
 
-    for marked in event {
+    for (i, marked) in event.into_iter().enumerate() {
         // We assume that sorting by coefs is reliable way to collate outcomes.
-        let marked = sort_outcomes_by_coef(&marked.1.outcomes);
+        let mut marked = sort_outcomes_by_coef(&marked.1.outcomes);
+
+        if i > 0 {
+            comparative_permutation(&mut marked, &table[0]);
+        }
+
         table.push(marked);
     }
 
@@ -372,6 +377,14 @@ fn sort_outcomes_by_coef(outcomes: &[Outcome]) -> Vec<&Outcome> {
     });
 
     result
+}
+
+fn comparative_permutation(outcomes: &mut [&Outcome], ideal: &[&Outcome]) {
+    for i in 0..ideal.len() - 1 {
+        if fuzzy_eq(&ideal[i].0, &outcomes[i+1].0) || fuzzy_eq(&outcomes[i].0, &ideal[i+1].0) {
+            outcomes.swap(i, i + 1);
+        }
+    }
 }
 
 fn no_bets_on_event(event: &Event) -> bool {
