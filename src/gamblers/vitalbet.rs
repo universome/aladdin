@@ -12,7 +12,7 @@ use base::timers::Periodic;
 use base::error::Result;
 use base::session::Session;
 use gamblers::Gambler;
-use events::{Offer, Outcome, Kind};
+use events::{Offer, Outcome, Kind, DRAW};
 use events::kinds::*;
 
 use self::PollingMessage as PM;
@@ -310,7 +310,11 @@ fn convert_match_into_offer(match_: &Match) -> Result<Option<Offer>> {
         Some(ref odds) =>
             odds.iter()
                 .filter(|odd| !odd.IsSuspended)
-                .map(|odd| Outcome(odd.Title.clone(), odd.Value))
+                .map(|odd| {
+                    let title = if odd.Title == "Draw" { DRAW.to_owned() } else { odd.Title.clone() };
+
+                    Outcome(title, odd.Value)
+                })
                 .collect::<Vec<_>>(),
         None => return Ok(None)
     };
