@@ -40,8 +40,12 @@ impl Bookie {
         Currency(self.balance.load(Relaxed) as i64)
     }
 
-    fn set_active(&self, active: bool) {
-         self.active.store(active, Relaxed);
+    fn activate(&self) {
+        self.active.store(true, Relaxed);
+    }
+
+    fn deactivate(&self) {
+        self.active.store(false, Relaxed);
     }
 
     fn set_balance(&self, balance: Currency) {
@@ -195,7 +199,7 @@ fn run_gambler(bookie: &'static Bookie,
         }
 
         info!(target: module, "Watching for offers...");
-        bookie.set_active(true);
+        bookie.activate();
 
         if let Err(error) = bookie.gambler.watch(&|offer, update| {
             // If errors occured at the time of betting.
@@ -218,7 +222,7 @@ fn run_gambler(bookie: &'static Bookie,
 fn regression(bookie: &Bookie) {
     let mut events = acquire_events_mut();
 
-    bookie.set_active(false);
+    bookie.deactivate();
 
     let outdated = events.values()
         .flat_map(|offers| offers.iter().filter(|o| o.0 == bookie))
