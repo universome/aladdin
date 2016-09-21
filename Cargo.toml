@@ -6,6 +6,9 @@ authors = [
     "Ivan Skorokhodov <iskorokhodov@gmail.com>"
 ]
 
+[features]
+place-bets = []
+
 [dependencies]
 log = "^0.3.6"
 env_logger = "^0.3.4"

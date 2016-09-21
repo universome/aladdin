@@ -12,7 +12,7 @@ use time;
 
 use base::logger;
 use base::config::CONFIG;
-use arbitrer::{self, State, MarkedOffer};
+use arbitrer::{self, Bookie, Events, MarkedOffer, Combo};
 
 lazy_static! {
     static ref PORT: u16 = CONFIG.lookup("server.port")
@@ -53,10 +53,16 @@ fn send_index(res: Response) {
         render_history(&mut buffer, &*history);
     }
 
+    render_bookies(&mut buffer, &arbitrer::BOOKIES);
+
     {
-        let state = arbitrer::acquire_state();
-        render_bookies(&mut buffer, &*state);
-        render_events(&mut buffer, &*state);
+        let combo_history = arbitrer::acquire_combo_history();
+        render_combo_history(&mut buffer, &*combo_history);
+    }
+
+    {
+        let events = arbitrer::acquire_events();
+        render_events(&mut buffer, &*events);
     }
 
     render_footer(&mut buffer, now.elapsed());
@@ -108,7 +114,7 @@ fn render_history(b: &mut String, history: &VecDeque<logger::Message>) {
     writeln!(b, r#"</ul>"#);
 }
 
-fn render_bookies(b: &mut String, state: &State) {
+fn render_bookies(b: &mut String, bookies: &[Bookie]) {
     write!(b, "
 # Bookies
 
@@ -116,16 +122,44 @@ fn render_bookies(b: &mut String, state: &State) {
 | ---- | -------:|:------:|
     ");
 
-    for bookie in &state.bookies {
+    for bookie in bookies {
         writeln!(b, "|{host}|{balance}|{active}|",
-                 host = bookie.bookie.host,
-                 balance = bookie.balance,
-                 active = if bookie.active { '✓' } else { ' ' });
+                 host = bookie.host,
+                 balance = bookie.balance(),
+                 active = if bookie.active() { '✓' } else { ' ' });
     }
 }
 
-fn render_events(b: &mut String, state: &State) {
-    if state.events.is_empty() {
+fn render_combo_history(b: &mut String, combo_history: &VecDeque<Combo>) {
+    if combo_history.is_empty() {
+        return;
+    }
+
+    writeln!(b, "# Recent combos");
+
+    for combo in combo_history {
+        writeln!(b, "|`[{date}]`|`{start}`|{kind:?}|||",
+                 date = format_date(combo.date, "%d/%m %R"),
+                 start = format_date(combo.head.date, "%d/%m %R"),
+                 kind = combo.head.kind);
+
+        writeln!(b, "|-|-|:-:|-|-|");
+
+        for bet in &combo.bets {
+            writeln!(b, "|{team} `{odds:.2}`|{host}|{size}|{profit:+.1}%|",
+                     team = bet.outcome.0,
+                     odds = bet.outcome.1,
+                     host = bet.bookie.host,
+                     size = bet.size,
+                     profit = bet.profit * 100.);
+        }
+
+        writeln!(b, "");
+    }
+}
+
+fn render_events(b: &mut String, events: &Events) {
+    if events.is_empty() {
         return;
     }
 
@@ -133,7 +167,7 @@ fn render_events(b: &mut String, state: &State) {
 
     let mut groups = HashMap::new();
 
-    for (offer, event) in &state.events {
+    for (offer, event) in events {
         let vec = groups.entry(offer.kind.clone()).or_insert_with(Vec::new);
         vec.push(event);
     }
@@ -156,7 +190,7 @@ fn render_events(b: &mut String, state: &State) {
                        inner_id = offer.inner_id);
 
                 for outcome in &offer.outcomes {
-                    write!(b, "{outcome} `{odds}`|",
+                    write!(b, "{outcome} `{odds:.2}`|",
                            outcome = outcome.0,
                            odds = outcome.1);
                 }
