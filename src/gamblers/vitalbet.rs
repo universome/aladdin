@@ -294,8 +294,8 @@ fn convert_match_into_offer(match_: &Match) -> Result<Option<Offer>> {
 
     // Currently, we are interested only in a single market type
     match match_.PreviewMarket {
-        Some(ref market) => {
-            if market.Name != "Match Odds" {
+        Some(Market { ref Name }) => {
+            if Name != "Match Odds" && Name != "Match Odds (3 Way)" && Name != "Series Winner" {
                 return Ok(None);
             }
         },
