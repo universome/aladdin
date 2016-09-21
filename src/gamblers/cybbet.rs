@@ -110,7 +110,7 @@ impl Gambler for CybBet {
 
                 for (id, date) in relevant {
                     if table.contains_key(&id) {
-                        let mut old = table[&id].clone();
+                        let old = table[&id].clone();
                         table.get_mut(&id).map(|o| o.date = date);
 
                         if old != table[&id] {
