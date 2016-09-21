@@ -106,11 +106,23 @@ impl Gambler for CybBet {
 
             // Request additional info about new games.
             if let Some(games) = koef.gamesStartTime {
-                let new_games = try!(collect_new_games(&table, games));
+                let relevant = try!(filter_relevant(games));
 
-                for game_id in new_games {
+                for (id, date) in relevant {
+                    if table.contains_key(&id) {
+                        let mut old = table[&id].clone();
+                        table.get_mut(&id).map(|o| o.date = date);
+
+                        if old != table[&id] {
+                            cb(old, false);
+                            cb(table[&id].clone(), true);
+                        }
+
+                        continue;
+                    }
+
                     let mut response = try!(self.session.post_form("/games/addNewGame", &[
-                        ("idGame", &format!("{}", game_id))
+                        ("idGame", &id.to_string())
                     ]));
 
                     // Fix invalid markup to parse this bullshit below.
@@ -125,7 +137,7 @@ impl Gambler for CybBet {
                     if !offers.is_empty() {
                         let offer = offers.drain(..).next().unwrap();
                         cb(offer.clone(), true);
-                        table.insert(game_id, offer);
+                        table.insert(id, offer);
                     }
                 }
             }
@@ -235,10 +247,8 @@ fn extract_offers(html: NodeRef) -> Result<Vec<Offer>> {
     Ok(offers)
 }
 
-fn collect_new_games(table: &HashMap<u32, Offer>,
-                     games: Vec<(String, String, Trash, Trash, Trash)>) -> Result<Vec<u32>>
-{
-    let mut new_games = Vec::new();
+fn filter_relevant(games: Vec<(String, String, Trash, Trash, Trash)>) -> Result<Vec<(u32, u32)>> {
+    let mut relevant = Vec::new();
     let threshold = time::get_time().sec as u32 + PERIOD;
 
     for (id, date, _, _, _) in games {
@@ -249,17 +259,8 @@ fn collect_new_games(table: &HashMap<u32, Offer>,
         }
 
         let id = try!(id.parse());
-
-        if table.contains_key(&id) {
-            debug_assert_eq!(table[&id], {
-                let mut new = table[&id].clone();
-                new.date = date;
-                new
-            });
-        } else {
-            new_games.push(id);
-        }
+        relevant.push((id, date));
     }
 
-    Ok(new_games)
+    Ok(relevant)
 }

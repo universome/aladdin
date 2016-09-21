@@ -82,16 +82,19 @@ impl Gambler for XBet {
             // Add/update offers.
             for offer in offers {
                 if map.contains_key(&offer.inner_id) {
-                    // We assume that offers for the id are equal and store only first.
-                    debug_assert!(offer == map[&offer.inner_id]);
+                    if offer == map[&offer.inner_id] {
+                        if map[&offer.inner_id].outcomes != offer.outcomes {
+                            cb(offer, true);
+                        }
 
-                    if map[&offer.inner_id].outcomes != offer.outcomes {
-                        cb(offer, true);
+                        continue;
+                    } else {
+                        cb(map.remove(&offer.inner_id).unwrap(), false);
                     }
-                } else {
-                    map.insert(offer.inner_id, offer.clone());
-                    cb(offer, true);
                 }
+
+                map.insert(offer.inner_id, offer.clone());
+                cb(offer, true);
             }
         }
 

@@ -82,17 +82,31 @@ impl Gambler for EGB {
                     let id = bet.id;
                     update_time = cmp::max(update_time, bet.ut);
 
-                    if let Some(offer) = try!(bet.into()) {
-                        // We assume that offers for the id are equal and store only first.
-                        debug_assert!(map.get(&id).map_or(true, |o| &offer == o));
+                    let offer = match try!(bet.into()) {
+                        Some(offer) => offer,
+                        None => continue
+                    };
 
-                        if !map.contains_key(&id) {
-                            map.insert(id, offer.clone());
-                            heap.push(TimeMarker(-(offer.date as i32), id));
-                        }
-
+                    // Short case: a new offer.
+                    if !map.contains_key(&id) {
+                        map.insert(id, offer.clone());
+                        heap.push(TimeMarker(-(offer.date as i32), id));
                         cb(offer, true);
+                        continue;
                     }
+
+                    let stored = map.remove(&id).unwrap();
+
+                    if stored.date != offer.date {
+                        heap.push(TimeMarker(-(offer.date as i32), id));
+                    }
+
+                    if stored != offer {
+                         cb(stored, false);
+                         cb(offer.clone(), true);
+                    }
+
+                    map.insert(id, offer);
                 }
             }
 
@@ -107,8 +121,12 @@ impl Gambler for EGB {
                 }
 
                 heap.pop();
-                let offer = map.remove(&id).unwrap();
-                cb(offer, false);
+
+                // Remove offer only if the time marker corresponds to the last modification.
+                if map.get(&id).map_or(false, |o| o.date == -date as u32) {
+                    let offer = map.remove(&id).unwrap();
+                    cb(offer, false);
+                }
             }
         }
 
@@ -176,7 +194,10 @@ impl Into<Result<Option<Offer>>> for Bet {
             "Smite" => Kind::Smite(Smite::Series),
             "StarCraft2" => Kind::StarCraft2(StarCraft2::Series),
             "WorldOfTanks" => Kind::WorldOfTanks(WorldOfTanks::Series),
-            _ => return Ok(None)
+            kind => {
+                warn!("Unknown kind: {}", kind);
+                return Ok(None);
+            }
         };
 
         let coef_1 = try!(self.coef_1.parse());
