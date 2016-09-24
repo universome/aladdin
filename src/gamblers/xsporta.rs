@@ -18,7 +18,7 @@ pub struct XBet {
 impl XBet {
     pub fn new() -> XBet {
         XBet {
-            session: Session::new("https://1xsporta.space")
+            session: Session::new("1xsporta.space")
         }
     }
 }

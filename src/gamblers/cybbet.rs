@@ -26,7 +26,7 @@ pub struct CybBet {
 impl CybBet {
     pub fn new() -> CybBet {
         CybBet {
-            session: Session::new("https://cybbet.com")
+            session: Session::new("cybbet.com")
         }
     }
 }

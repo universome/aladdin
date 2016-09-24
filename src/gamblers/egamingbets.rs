@@ -18,7 +18,7 @@ pub struct EGB {
 impl EGB {
     pub fn new() -> EGB {
         EGB {
-            session: Session::new("https://egamingbets.com")
+            session: Session::new("egamingbets.com")
         }
     }
 }

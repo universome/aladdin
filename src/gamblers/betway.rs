@@ -24,7 +24,7 @@ pub struct BetWay {
 impl BetWay {
     pub fn new() -> BetWay {
         BetWay {
-            session: Session::new("https://sports.betway.com")
+            session: Session::new("sports.betway.com")
         }
     }
 
