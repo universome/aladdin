@@ -150,11 +150,11 @@ fn render_combos(b: &mut String, combos: &[Combo]) {
         writeln!(b, "|-|-|-:|-:|");
 
         for bet in &combo.bets {
-            writeln!(b, "|{title} `{coef:.2}`|{host}|{size}|{profit:+.1}%|",
+            writeln!(b, "|{title} `{coef:.2}`|{host}|{stake}|{profit:+.1}%|",
                      title = if let Some(ref s) = bet.title { s } else { "*draw*" },
                      coef = bet.coef,
                      host = bet.host,
-                     size = bet.size,
+                     stake = bet.stake,
                      profit = bet.profit * 100.);
         }
 

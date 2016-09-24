@@ -18,7 +18,7 @@ pub struct Bet {
     pub title: Option<String>,
     pub expiry: u32,
     pub coef: f64,
-    pub size: Currency,
+    pub stake: Currency,
     pub profit: f64
 }
 
@@ -40,7 +40,7 @@ const BET_SCHEMA: &str = "bet(
     title   TEXT,
     expiry  INTEGER NOT NULL,
     coef    REAL    NOT NULL,
-    size    REAL    NOT NULL,
+    stake   REAL    NOT NULL,
     profit  REAL    NOT NULL,
 
     PRIMARY KEY(host, id)
@@ -63,8 +63,8 @@ pub fn contains(host: &str, id: u64) -> bool {
 
 pub fn save(combo: Combo) {
     // TODO(loyd): use cache.
-    const INSERT_BET: &str = "INSERT INTO bet(host, id, title, expiry, coef, size, profit)
-                              VALUES (:host, :id, :title, :expiry, :coef, :size, :profit)";
+    const INSERT_BET: &str = "INSERT INTO bet(host, id, title, expiry, coef, stake, profit)
+                              VALUES (:host, :id, :title, :expiry, :coef, :stake, :profit)";
 
     const INSERT_COMBO: &str = "INSERT INTO combo(date, kind, bet_1, bet_2, bet_3)
                                 VALUES (:date, :kind, :bet_1, :bet_2, :bet_3)";
@@ -73,7 +73,7 @@ pub fn save(combo: Combo) {
     let tx = db.transaction().unwrap();
 
     let row_ids = combo.bets.iter().map(|bet| {
-        let size: f64 = bet.size.into();
+        let stake: f64 = bet.stake.into();
 
         tx.execute_named(INSERT_BET, &[
             (":host", &bet.host),
@@ -81,7 +81,7 @@ pub fn save(combo: Combo) {
             (":title", &bet.title),
             (":expiry", &(bet.expiry as i64)),
             (":coef", &bet.coef),
-            (":size", &size),
+            (":stake", &stake),
             (":profit", &bet.profit)
         ]).unwrap();
 
@@ -113,7 +113,7 @@ impl<'a, 'b> From<Row<'a, 'b>> for Combo {
                     title:  row.get(o + 2),
                     expiry: row.get::<_, i64>(o + 3) as u32,
                     coef:   row.get(o + 4),
-                    size:   Currency::from(row.get::<_, f64>(o + 5)),
+                    stake:  Currency::from(row.get::<_, f64>(o + 5)),
                     profit: row.get(o + 6)
                 }
             })

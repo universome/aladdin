@@ -64,10 +64,8 @@ lazy_static! {
     static ref EVENTS: RwLock<Events> = RwLock::new(HashMap::new());
 
     // TODO(loyd): add getters to `config` module and refactor this.
-    static ref BET_SIZE: Currency = CONFIG.lookup("arbitrer.bet-size")
+    static ref STAKE: Currency = CONFIG.lookup("arbitrer.stake")
         .unwrap().as_float().unwrap().into();
-    static ref COMBO_HISTORY_SIZE: u32 = CONFIG.lookup("arbitrer.history-size")
-        .unwrap().as_integer().unwrap() as u32 * 3600;
     static ref LOWER_PROFIT_THRESHOLD: f64 = CONFIG.lookup("arbitrer.lower-profit-threshold")
         .unwrap().as_float().unwrap();
     static ref UPPER_PROFIT_THRESHOLD: f64 = CONFIG.lookup("arbitrer.upper-profit-threshold")
@@ -386,7 +384,7 @@ fn save_combo(event: &Event, outcomes: &[MarkedOutcome]) {
             title: if m.outcome.0 == DRAW { None } else { Some(m.outcome.0.clone()) },
             expiry: event[m.market].1.date,
             coef: m.outcome.1,
-            size: m.rate * *BET_SIZE,
+            stake: m.rate * *STAKE,
             profit: m.profit
         }).collect()
     });
@@ -408,12 +406,12 @@ fn place_bet(event: &Event, outcomes: &[MarkedOutcome]) {
         let bookie = event[marked.market].0;
         let offer = event[marked.market].1.clone();
         let outcome = marked.outcome.clone();
-        let bet_size = marked.rate * *BET_SIZE;
+        let stake = marked.rate * *STAKE;
 
         thread::spawn(move || {
             let mut guard = Guard(bookie, false);
 
-            if let Err(error) = bookie.gambler.place_bet(offer, outcome, bet_size) {
+            if let Err(error) = bookie.gambler.place_bet(offer, outcome, stake) {
                 error!(target: bookie.module, "While placing bet: {}", error);
                 return;
             }
