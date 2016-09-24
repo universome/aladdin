@@ -20,6 +20,7 @@ extern crate serde;
 extern crate serde_json;
 extern crate toml;
 extern crate crossbeam;
+extern crate websocket;
 
 use std::thread;
 
