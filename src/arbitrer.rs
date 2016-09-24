@@ -377,7 +377,7 @@ fn comparative_permutation(outcomes: &mut [&Outcome], ideal: &[&Outcome]) {
 
 fn no_bets_on_event(event: &Event) -> bool {
     // TODO(loyd): what about bulk checking?
-    event.iter().any(|marked| combo::contains(&marked.0.host, marked.1.inner_id))
+    !event.iter().any(|marked| combo::contains(&marked.0.host, marked.1.inner_id))
 }
 
 fn distribute_currency(pairs: &[(&MarkedOffer, &MarkedOutcome)]) -> Option<Vec<Currency>> {
