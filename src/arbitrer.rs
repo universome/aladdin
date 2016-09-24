@@ -327,6 +327,7 @@ fn realize_event(event: &Event) {
         if *LOWER_PROFIT_THRESHOLD <= min_profit && min_profit <= *UPPER_PROFIT_THRESHOLD {
             // TODO(loyd): drop offers instead of whole events.
             if no_bets_on_event(event) {
+                // Save combo synchronously to prevent race condition.
                 save_combo(event, &outcomes);
                 place_bet(event, &outcomes);
             }
@@ -385,7 +386,8 @@ fn save_combo(event: &Event, outcomes: &[MarkedOutcome]) {
             expiry: event[m.market].1.date,
             coef: m.outcome.1,
             stake: m.rate * *STAKE,
-            profit: m.profit
+            profit: m.profit,
+            placed: false
         }).collect()
     });
 }
@@ -422,6 +424,8 @@ fn place_bet(event: &Event, outcomes: &[MarkedOutcome]) {
             }
 
             guard.1 = true;
+
+            combo::mark_as_placed(&bookie.host, offer.inner_id);
         });
     }
 }

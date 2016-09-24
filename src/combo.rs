@@ -19,7 +19,8 @@ pub struct Bet {
     pub expiry: u32,
     pub coef: f64,
     pub stake: Currency,
-    pub profit: f64
+    pub profit: f64,
+    pub placed: bool
 }
 
 lazy_static! {
@@ -42,6 +43,7 @@ const BET_SCHEMA: &str = "bet(
     coef    REAL    NOT NULL,
     stake   REAL    NOT NULL,
     profit  REAL    NOT NULL,
+    placed  BOOLEAN NOT NULL
 
     PRIMARY KEY(host, id)
 )";
@@ -56,15 +58,15 @@ const COMBO_SCHEMA: &str = "combo(
 
 pub fn contains(host: &str, id: u64) -> bool {
     let db = DB.lock().unwrap();
-    let mut stmt = db.prepare_cached("SELECT id FROM bet WHERE host = ? and id = ?").unwrap();
+    let mut stmt = db.prepare_cached("SELECT id FROM bet WHERE host = ? AND id = ?").unwrap();
 
     stmt.exists(&[&host, &(id as i64)]).unwrap()
 }
 
 pub fn save(combo: Combo) {
     // TODO(loyd): use cache.
-    const INSERT_BET: &str = "INSERT INTO bet(host, id, title, expiry, coef, stake, profit)
-                              VALUES (:host, :id, :title, :expiry, :coef, :stake, :profit)";
+    const INSERT_BET: &str = "INSERT INTO bet(host, id, title, expiry, coef, stake, profit, placed)
+                              VALUES (:host, :id, :title, :expiry, :coef, :stake, :profit, :placed)";
 
     const INSERT_COMBO: &str = "INSERT INTO combo(date, kind, bet_1, bet_2, bet_3)
                                 VALUES (:date, :kind, :bet_1, :bet_2, :bet_3)";
@@ -82,7 +84,8 @@ pub fn save(combo: Combo) {
             (":expiry", &(bet.expiry as i64)),
             (":coef", &bet.coef),
             (":stake", &stake),
-            (":profit", &bet.profit)
+            (":profit", &bet.profit),
+            (":placed", &bet.placed)
         ]).unwrap();
 
         tx.last_insert_rowid()
@@ -99,13 +102,20 @@ pub fn save(combo: Combo) {
     tx.commit().unwrap();
 }
 
+pub fn mark_as_placed(host: &str, id: u64) {
+    let db = DB.lock().unwrap();
+    let mut stmt = db.prepare_cached("UPDATE bet SET placed = 1 WHERE host = ? AND id = ?").unwrap();
+
+    stmt.execute(&[&host, &(id as i64)]).unwrap();
+}
+
 impl<'a, 'b> From<Row<'a, 'b>> for Combo {
     fn from(row: Row) -> Combo {
         // XXX(loyd): this code relies on column ordering.
         let bets = (0..3)
             .take_while(|i| *i < 2 || row.get::<_, Option<i64>>(2 + i).is_some())
             .map(|i| {
-                let o = 5 + i * 7;
+                let o = 5 + i * 8;
 
                 Bet {
                     host:   row.get(o),
@@ -114,7 +124,8 @@ impl<'a, 'b> From<Row<'a, 'b>> for Combo {
                     expiry: row.get::<_, i64>(o + 3) as u32,
                     coef:   row.get(o + 4),
                     stake:  Currency::from(row.get::<_, f64>(o + 5)),
-                    profit: row.get(o + 6)
+                    profit: row.get(o + 6),
+                    placed: row.get(o + 7)
                 }
             })
             .collect();
