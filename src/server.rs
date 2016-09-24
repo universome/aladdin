@@ -12,6 +12,7 @@ use time;
 
 use base::logger;
 use base::config::CONFIG;
+use base::currency::Currency;
 use arbitrer::{self, Bookie, Events, MarkedOffer};
 use combo::{self, Combo};
 
@@ -141,20 +142,22 @@ fn render_combos(b: &mut String, combos: &[Combo]) {
     for combo in combos {
         let approx_expiry = combo.bets[0].expiry;
 
-        writeln!(b, "|`[{date}]`|{kind}|`{start_date}`|`{start_time}`|",
+        writeln!(b, "|`[{date}]`|{kind}|`{start_date}`|`{start_time}`|{sum}|",
                  date = format_date(combo.date, "%d/%m %R"),
+                 kind = combo.kind,
                  start_date = format_date(approx_expiry, "%d/%m"),
                  start_time = format_date(approx_expiry, "%R"),
-                 kind = combo.kind);
+                 sum = combo.bets.iter().fold(Currency(0), |sum, bet| sum + bet.stake));
 
-        writeln!(b, "|-|-|-:|-:|");
+        writeln!(b, "|-|-|-:|:-:|-:|");
 
         for bet in &combo.bets {
-            writeln!(b, "|{title} `{coef:.2}`|{host}|{stake}|{profit:+.1}%|",
+            writeln!(b, "|{title} `{coef:.2}`|{host}|{stake}|{placed}|{profit:+.1}%|",
                      title = if let Some(ref s) = bet.title { s } else { "*draw*" },
                      coef = bet.coef,
                      host = bet.host,
                      stake = bet.stake,
+                     placed = if bet.placed { ' ' } else { '✘' },
                      profit = bet.profit * 100.);
         }
 
