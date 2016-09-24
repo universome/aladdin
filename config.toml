@@ -7,8 +7,8 @@ retry-delay = 30    # [minutes]
 base-stake = 1.00   # [$]
 
 max-stake  = 5.00   # [$]
-max-profit = 0.02
-min-profit = 0.15
+min-profit = 0.02
+max-profit = 0.15
 
 database = "aladdin.db"
 
