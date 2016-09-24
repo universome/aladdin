@@ -422,7 +422,7 @@ fn add_combo(event: &Event, outcomes: &[MarkedOutcome]) {
         bets: outcomes.iter().map(|m| Bet {
             host: event[m.market].0.host.clone(),
             id: event[m.market].1.inner_id,
-            title: m.outcome.0.clone(),
+            title: if m.outcome.0 == DRAW { None } else { Some(m.outcome.0.clone()) },
             expiry: event[m.market].1.date,
             coef: m.outcome.1,
             size: m.rate * *BET_SIZE,
