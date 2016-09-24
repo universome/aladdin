@@ -335,10 +335,10 @@ fn realize_event(event: &Event) {
 
         let pairs = outcomes.iter().map(|o| (&event[o.market], o)).collect::<Vec<_>>();
 
-        let stakes = distribute_currency(&pairs);
-        if stakes.is_empty() {
-            return;
-        }
+        let stakes = match distribute_currency(&pairs) {
+            Some(stakes) => stakes,
+            None => return
+        };
 
         // Save combo synchronously to prevent race condition.
         save_combo(&pairs, &stakes);
@@ -380,7 +380,7 @@ fn no_bets_on_event(event: &Event) -> bool {
     event.iter().any(|marked| combo::contains(&marked.0.host, marked.1.inner_id))
 }
 
-fn distribute_currency(pairs: &[(&MarkedOffer, &MarkedOutcome)]) -> Vec<Currency> {
+fn distribute_currency(pairs: &[(&MarkedOffer, &MarkedOutcome)]) -> Option<Vec<Currency>> {
     let mut base_rate = pairs[0].1.rate;
 
     for &(_, marked_outcome) in pairs {
@@ -390,17 +390,25 @@ fn distribute_currency(pairs: &[(&MarkedOffer, &MarkedOutcome)]) -> Vec<Currency
     let mut stakes = Vec::with_capacity(pairs.len());
 
     for &(marked_offer, marked_outcome) in pairs {
+        let bookie = marked_offer.0;
         let stake = marked_outcome.rate / base_rate * *BASE_STAKE;
 
         if stake > *MAX_STAKE {
             warn!("Too high stake ({})", stake);
-            return Vec::new();
+            return None;
+        }
+
+        let balance = bookie.balance();
+
+        if stake > balance {
+            warn!("Not enough money on {} ({}, but required {})", bookie.host, balance, stake);
+            return None;
         }
 
         stakes.push(stake);
     }
 
-    stakes
+    Some(stakes)
 }
 
 fn save_combo(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
