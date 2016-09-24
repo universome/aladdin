@@ -3,10 +3,12 @@ history-size = 20
 
 [arbitrer]
 retry-delay = 30    # [minutes]
-stake = 5.00        # [$]
 
-lower-profit-threshold = 0.01
-upper-profit-threshold = 0.1
+base-stake = 1.00   # [$]
+
+max-stake  = 5.00   # [$]
+max-profit = 0.02
+min-profit = 0.15
 
 database = "aladdin.db"
 

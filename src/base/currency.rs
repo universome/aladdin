@@ -3,7 +3,7 @@ use std::convert::From;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::convert::Into;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Currency(pub i64);
 
 impl Display for Currency {
@@ -101,6 +101,6 @@ fn test_from_conversion() {
 #[test]
 fn test_into_conversion() {
     let float: f64 = Currency(15).into();
-    
+
     assert_eq!(float, 0.15);
 }
