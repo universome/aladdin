@@ -6,7 +6,6 @@ use std::sync::atomic::{AtomicBool, AtomicIsize};
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::mpsc::{self, Sender, Receiver};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use crossbeam;
 use time;
 
 use base::config::CONFIG;
@@ -84,16 +83,14 @@ pub fn run() {
     let (incoming_tx, incoming_rx) = mpsc::channel();
     let (outgoing_tx, outgoing_rx) = mpsc::channel();
 
-    crossbeam::scope(|scope| {
-        for bookie in BOOKIES.iter() {
-            let incoming_tx = incoming_tx.clone();
-            let outgoing_tx = outgoing_tx.clone();
+    for bookie in BOOKIES.iter() {
+        let incoming_tx = incoming_tx.clone();
+        let outgoing_tx = outgoing_tx.clone();
 
-            scope.spawn(move || run_gambler(bookie, incoming_tx, outgoing_tx));
-        }
+        thread::spawn(move || run_gambler(bookie, incoming_tx, outgoing_tx));
+    }
 
-        process_channels(incoming_rx, outgoing_rx);
-    });
+    process_channels(incoming_rx, outgoing_rx);
 }
 
 fn init_bookies() -> Vec<Bookie> {
