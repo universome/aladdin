@@ -2,6 +2,7 @@
 
 use std::result::Result as StdResult;
 use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
 use serde::{Deserialize, Deserializer};
 use serde_json as json;
 use time;
@@ -9,7 +10,7 @@ use url::percent_encoding::{utf8_percent_encode, USERINFO_ENCODE_SET};
 
 use base::currency::Currency;
 use base::timers::Periodic;
-use base::error::Result;
+use base::error::{Result, Error};
 use base::session::Session;
 use gamblers::Gambler;
 use events::{Offer, Outcome, Kind, DRAW};
@@ -18,7 +19,8 @@ use events::kinds::*;
 use self::PollingMessage as PM;
 
 pub struct VitalBet {
-    session: Session
+    session: Session,
+    state: Mutex<State>
 }
 
 define_encode_set! {
@@ -28,7 +30,13 @@ define_encode_set! {
 impl VitalBet {
     pub fn new() -> VitalBet {
         VitalBet {
-            session: Session::new("vitalbet.com")
+            session: Session::new("vitalbet.com"),
+            state: Mutex::new(State {
+                odds_to_matches_ids: HashMap::new(),
+                matches: HashMap::new(),
+                offers: HashMap::new(),
+                changed_matches: HashSet::new()
+            })
         }
     }
 
@@ -82,26 +90,28 @@ impl Gambler for VitalBet {
         try!(self.session.get_html("/"));
 
         let mut timer = Periodic::new(3600);
-        let mut state = State {
-            odds_to_matches_ids: HashMap::new(),
-            matches: HashMap::new(),
-            offers: HashMap::new(),
-            changed_matches: HashSet::new()
-        };
 
         // Fill with initial matches
         let initial_matches = try!(self.get_all_matches());
 
         for match_ in initial_matches {
-            try!(apply_match_update(&mut state, match_));
+            let mut state = try!(self.state.lock());
+
+            try!(apply_match_update(&mut *state, match_));
         }
 
-        try!(provide_offers(&mut state, cb));
+        {
+            let mut state = try!(self.state.lock());
+
+            try!(provide_offers(&mut *state, cb));
+        }
 
         // Start polling
         let polling_path = try!(self.generate_polling_path());
 
         loop {
+            let mut state = try!(self.state.lock());
+
             // Every hour we should renew our state
             if timer.next_if_elapsed() {
                 let matches = try!(self.get_all_matches());
@@ -109,21 +119,56 @@ impl Gambler for VitalBet {
                 state.odds_to_matches_ids = HashMap::new();
 
                 for match_ in matches {
-                    try!(apply_match_update(&mut state, match_));
+                    try!(apply_match_update(&mut *state, match_));
                 }
 
-                try!(provide_offers(&mut state, cb));
+                try!(provide_offers(&mut *state, cb));
             }
 
             let updates: PollingResponse = try!(self.session.get_json(&polling_path));
 
-            try!(apply_updates(&mut state, updates.M));
-            try!(provide_offers(&mut state, cb));
+            try!(apply_updates(&mut *state, updates.M));
+            try!(provide_offers(&mut *state, cb));
         }
     }
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Result<()> {
-        unimplemented!();
+        let state = &*try!(self.state.lock());
+        let match_ = match state.matches.get(&(offer.inner_id as u32)) {
+            Some(m) => m,
+            None => return Err(Error::from("Match with provided offer.inner_id is not found"))
+        };
+        let outcome_id = match match_.PreviewOdds {
+            Some(ref odds) => match odds.iter().find(|o| o.Title == outcome.0) {
+                Some(ref odd) => odd.ID,
+                None => return Err(Error::from("Match does not have odd with odd.Title == outcome.0"))
+            },
+            None => return Err(Error::from("Match does not have any odds"))
+        };
+
+        let request_data = PlaceBetRequestData {
+            AcceptBetterOdds: true,
+            Selections: vec![
+                Bet {
+                    Items: vec![
+                        BetOutcome {
+                            ID: outcome_id,
+                            IsBanker: false
+                        }
+                    ],
+                    Stake: bet.into(),
+                    Return: (bet * outcome.1).into()
+                }
+            ]
+        };
+
+        let response = try!(self.session.post_json("/api/betslip/place", request_data));
+        let response: ErrorPlaceBetResponse = try!(json::from_reader(response));
+
+        match response.ErrorMessage {
+            Some(m) => Err(Error::from(m)),
+            None => Ok(())
+        }
     }
 }
 
@@ -262,6 +307,33 @@ struct OddUpdate {
 #[derive(Deserialize)]
 struct PrematchOddUpdate(u32, f64, i32);
 
+#[derive(Deserialize)]
+struct PrematchMatchUpdate(u32, i32, i64);
+
+#[derive(Serialize, Debug)]
+struct PlaceBetRequestData {
+    Selections: Vec<Bet>,
+    AcceptBetterOdds: bool
+}
+
+#[derive(Serialize, Debug)]
+struct Bet {
+    Items: Vec<BetOutcome>,
+    Stake: f64,
+    Return: f64
+}
+
+#[derive(Serialize, Debug)]
+struct BetOutcome {
+    ID: u32,
+    IsBanker: bool
+}
+
+#[derive(Deserialize, Debug)]
+struct ErrorPlaceBetResponse {
+    ErrorMessage: Option<String>,
+}
+
 fn convert_prematch_odd_update(update: &PrematchOddUpdate) -> OddUpdate {
     OddUpdate {
         ID: update.0,
@@ -269,9 +341,6 @@ fn convert_prematch_odd_update(update: &PrematchOddUpdate) -> OddUpdate {
         IsSuspended: update.2 == 3 // IsSuspended status.
     }
 }
-
-#[derive(Deserialize)]
-struct PrematchMatchUpdate(u32, i32, i64);
 
 fn convert_prematch_match_update(update: PrematchMatchUpdate) -> Match {
     let tm = time::at_utc(time::Timespec::new(update.2 as i64, 0));
@@ -309,22 +378,25 @@ fn convert_match_into_offer(match_: &Match) -> Result<Option<Offer>> {
         return Ok(None);
     }
 
-    let odds = match match_.PreviewOdds {
-        Some(ref odds) =>
-            odds.iter()
-                .filter(|odd| !odd.IsSuspended)
-                .map(|odd| {
-                    let title = if odd.Title == "Draw" { DRAW.to_owned() } else { odd.Title.clone() };
+    match match_.PreviewOdds {
+        Some(ref odds) => {
+            if odds.len() < 2 || odds.iter().any(|o| o.IsSuspended) {
+                return Ok(None);
+            }
+        },
+        None => return Ok(None)
+    }
 
-                    Outcome(title, odd.Value)
-                })
-                .collect::<Vec<_>>(),
+    let odds = match match_.PreviewOdds {
+        Some(ref odds) => odds.iter()
+            .map(|odd| {
+                let title = if odd.Title == "Draw" { DRAW.to_owned() } else { odd.Title.clone() };
+
+                Outcome(title, odd.Value)
+            })
+            .collect::<Vec<_>>(),
         None => return Ok(None)
     };
-
-    if odds.len() == 0 {
-        return Ok(None);
-    }
 
     let ts = try!(time::strptime(&match_.DateOfMatch, "%Y-%m-%dT%H:%M:%S")).to_timespec();
 

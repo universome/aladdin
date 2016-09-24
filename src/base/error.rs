@@ -3,6 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::fmt::Result as FmtResult;
 use std::error::Error as StdError;
 use std::result::Result as StdResult;
+use std::sync::PoisonError;
 use std::io::Error as IoError;
 use std::num::{ParseIntError, ParseFloatError};
 use std::str::ParseBoolError;
@@ -58,6 +59,12 @@ impl From<JsonError> for Error {
             JsonError::Io(err) => Network(From::from(err)),
             err => Unexpected(From::from(err))
         }
+    }
+}
+
+impl<T> From<PoisonError<T>> for Error {
+    fn from(err: PoisonError<T>) -> Error {
+        Error::from("Poison error")
     }
 }
 
