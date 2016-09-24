@@ -12,7 +12,7 @@ use time;
 
 use base::logger;
 use base::config::CONFIG;
-use arbitrer::{self, Bookie, Events, MarkedOffer, Combo};
+use arbitrer::{self, Bookie, Events, MarkedOffer, OldCombo};
 
 lazy_static! {
     static ref PORT: u16 = CONFIG.lookup("server.port")
@@ -130,7 +130,7 @@ fn render_bookies(b: &mut String, bookies: &[Bookie]) {
     }
 }
 
-fn render_combo_history(b: &mut String, combo_history: &VecDeque<Combo>) {
+fn render_combo_history(b: &mut String, combo_history: &VecDeque<OldCombo>) {
     if combo_history.is_empty() {
         return;
     }

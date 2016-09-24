@@ -14,6 +14,7 @@ use base::currency::Currency;
 use events::{Offer, Outcome, DRAW, fuzzy_eq};
 use gamblers::{self, BoxedGambler};
 use opportunity::{self, Strategy, MarkedOutcome};
+use combo::{self, Combo, Bet};
 
 pub struct Bookie {
     pub host: String,
@@ -58,13 +59,13 @@ pub struct MarkedOffer(pub &'static Bookie, pub Offer);
 pub type Event = Vec<MarkedOffer>;
 pub type Events = HashMap<Offer, Event>;
 
-pub struct Combo {
+pub struct OldCombo {
     pub date: u32,
     pub head: Offer,
-    pub bets: Vec<Bet>
+    pub bets: Vec<OldBet>
 }
 
-pub struct Bet {
+pub struct OldBet {
     pub bookie: &'static Bookie,
     pub outcome: Outcome,
     pub size: Currency,
@@ -74,7 +75,7 @@ pub struct Bet {
 lazy_static! {
     pub static ref BOOKIES: Vec<Bookie> = init_bookies();
     static ref EVENTS: RwLock<Events> = RwLock::new(HashMap::new());
-    static ref COMBO_HISTORY: RwLock<VecDeque<Combo>> = RwLock::new(VecDeque::new());
+    static ref COMBO_HISTORY: RwLock<VecDeque<OldCombo>> = RwLock::new(VecDeque::new());
 
     // TODO(loyd): add getters to `config` module and refactor this.
     static ref BET_SIZE: Currency = CONFIG.lookup("arbitrer.bet-size")
@@ -95,11 +96,11 @@ fn acquire_events_mut() -> RwLockWriteGuard<'static, Events> {
     EVENTS.write().unwrap()
 }
 
-pub fn acquire_combo_history() -> RwLockReadGuard<'static, VecDeque<Combo>> {
+pub fn acquire_combo_history() -> RwLockReadGuard<'static, VecDeque<OldCombo>> {
     COMBO_HISTORY.read().unwrap()
 }
 
-fn acquire_combo_history_mut() -> RwLockWriteGuard<'static, VecDeque<Combo>> {
+fn acquire_combo_history_mut() -> RwLockWriteGuard<'static, VecDeque<OldCombo>> {
     COMBO_HISTORY.write().unwrap()
 }
 
@@ -404,12 +405,26 @@ fn add_combo(event: &Event, outcomes: &[MarkedOutcome]) {
 
     debug!("New combo for {}", event[0].1);
 
-    history.push_back(Combo {
+    history.push_back(OldCombo {
         date: now,
         head: event[0].1.clone(),
-        bets: outcomes.iter().map(|m| Bet {
+        bets: outcomes.iter().map(|m| OldBet {
             bookie: event[m.market].0,
             outcome: m.outcome.clone(),
+            size: m.rate * *BET_SIZE,
+            profit: m.profit
+        }).collect()
+    });
+
+    combo::save(Combo {
+        date: now,
+        kind: format!("{:?}", event[0].1.kind),
+        bets: outcomes.iter().map(|m| Bet {
+            host: event[m.market].0.host.clone(),
+            id: event[m.market].1.inner_id,
+            title: m.outcome.0.clone(),
+            expiry: event[m.market].1.date,
+            coef: m.outcome.1,
             size: m.rate * *BET_SIZE,
             profit: m.profit
         }).collect()
