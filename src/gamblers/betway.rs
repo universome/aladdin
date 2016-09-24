@@ -1,10 +1,10 @@
 #![allow(non_snake_case)]
 
-use std::io::Read;
 use std::collections::HashMap;
-use kuchiki::{self, NodeRef};
-use kuchiki::traits::TendrilSink;
+use std::result::Result as StdResult;
+use kuchiki::NodeRef;
 use regex::Regex;
+use serde::{Deserialize, Deserializer};
 use serde_json as json;
 use time;
 
@@ -13,8 +13,10 @@ use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
 use base::currency::Currency;
+use base::websocket::Connection as Connection;
 use gamblers::Gambler;
-use events::{Offer, Outcome, DRAW, Kind};
+use events::{Offer, DRAW, Kind};
+use events::Outcome as AladdinOutcome;
 use events::kinds::*;
 
 pub struct BetWay {
@@ -39,7 +41,7 @@ impl BetWay {
         extract_events_ids(response)
     }
 
-    fn get_events(&self, events_ids: Vec<u32>) -> Result<EventsResponse> {
+    fn get_events(&self, events_ids: &Vec<u32>) -> Result<EventsResponse> {
         let path = "/emoapi/emos";
         let request_data = EventsRequestData {
             eventIds: events_ids,
@@ -88,24 +90,62 @@ impl Gambler for BetWay {
     }
 
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
-        let mut provided_offers = HashMap::new();
-        
-        let initial_events_ids = try!(self.get_esports_events_ids());
-        let events = try!(self.get_events(initial_events_ids)).result;
+        let mut timer = Periodic::new(3600);
+        let mut events = HashMap::new();
+        let mut connection = try!(Connection::new("wss://sports.betway.com/emoapi/push"));
+        let mut is_inited = false;
+        let session = self.session.get_cookie("SESSION").unwrap();
 
-        for event in events {
-            if let Some(offer) = try!(create_offer_from_event(&event)) {
-                provided_offers.insert(offer.inner_id as u32, offer.clone());
+        loop {
+            if !is_inited || timer.next_if_elapsed() {
+                let events_ids = try!(self.get_esports_events_ids());
+                let current_events = try!(self.get_events(&events_ids)).result;
 
-                cb(offer, true);
+                for event in current_events {
+                    if events.contains_key(&event.eventId) {
+                        continue;
+                    }
+
+                    if let Some(offer) = try!(create_offer_from_event(&event)) {
+                        cb(offer, true);
+                    }
+
+                    let event_subscription = EventSubscription {
+                        cmd: "eventSub",
+                        session: &session,
+                        eventIds: vec![event.eventId.clone()]
+                    };
+
+                    try!(connection.send(event_subscription));
+
+                    events.insert(event.eventId, event);
+                }
+
+                is_inited = true;
+            }
+
+            let update = try!(connection.receive::<Update>());
+
+            if let Some(mut event) = match update {
+                Update::EventUpdate(ref u) => events.get_mut(&u.eventId),
+                Update::MarketUpdate(ref u) => events.get_mut(&u.eventId),
+                Update::OutcomeUpdate(ref u) => events.get_mut(&u.eventId),
+                _ => None
+            } {
+                apply_update(&mut event, &update);
+
+                if let Some(offer) = try!(create_offer_from_event(&event)) {
+                    cb(offer, true);
+                } else {
+                    cb(try!(create_dummy_offer_from_event(&event)), false);
+                }
+            } else {
+                warn!("We've somehow received an update for unknown event: {:?}", update);
             }
         }
-
-        // TODO(universome): Run websockets for updates
-        Ok(())
     }
 
-    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Result<()> {
+    fn place_bet(&self, offer: Offer, outcome: AladdinOutcome, bet: Currency) -> Result<()> {
         unimplemented!();
     }
 }
@@ -138,7 +178,7 @@ struct BalanceResponse {
 
 #[derive(Serialize, Debug)]
 struct EventsRequestData<'a> {
-    eventIds: Vec<u32>,
+    eventIds: &'a Vec<u32>,
     lang: &'a str
 }
 
@@ -162,16 +202,17 @@ struct Event {
 #[derive(Deserialize, Debug)]
 struct Market {
     marketId: u32,
-    outcomes: Vec<BetwayOutcome>,
+    outcomes: Vec<Outcome>,
     active: bool,
     cname: String,
     typeCname: String
 }
 
+// TODO(universome): what are priceNum and priceDen?
 #[derive(Deserialize, Debug)]
-struct BetwayOutcome {
+struct Outcome {
     outcomeId: u32,
-    priceDec: f64,
+    priceDec: Option<f64>,
     name: String,
     active: bool,
     typeCname: String
@@ -182,6 +223,68 @@ struct Keyword {
     typeCname: String,
     cname: String
 }
+
+#[derive(Serialize, Debug)]
+struct EventSubscription<'a> {
+    cmd: &'a str,
+    session: &'a String,
+    eventIds: Vec<u32>
+}
+
+#[derive(Debug)]
+enum Update {
+    EventUpdate(EventUpdate),
+    MarketUpdate(MarketUpdate),
+    OutcomeUpdate(OutcomeUpdate),
+    UnsupportedUpdate(UnsupportedUpdate)
+}
+
+impl Deserialize for Update {
+    fn deserialize<D>(d: &mut D) -> StdResult<Update, D::Error> where D: Deserializer {
+        let result: json::Value = try!(Deserialize::deserialize(d));
+
+        if !result.find("type").map_or(false, json::Value::is_string) {
+            warn!("Type is absent in message: {}", result);
+            return Ok(Update::UnsupportedUpdate(UnsupportedUpdate("Type is absent".to_string())));
+        }
+
+        let update_type = result.find("type").unwrap().as_str().unwrap_or("No update type").to_string();
+
+        Ok(match update_type.as_ref() {
+            "match" => Update::EventUpdate( json::from_value(result).unwrap() ),
+            "market" => Update::MarketUpdate( json::from_value(result).unwrap() ),
+            "outcome" => Update::OutcomeUpdate( json::from_value(result).unwrap() ),
+            other_type => Update::UnsupportedUpdate( UnsupportedUpdate(other_type.to_string()))
+        })
+    }
+}
+
+#[derive(Deserialize, Debug)]
+struct EventUpdate {
+    eventId: u32,
+    live: bool,
+    active: bool,
+    // started: bool
+}
+
+#[derive(Deserialize, Debug)]
+struct MarketUpdate {
+    eventId: u32,
+    marketId: u32,
+    active: bool
+}
+
+#[derive(Deserialize, Debug)]
+struct OutcomeUpdate {
+    eventId: u32,
+    marketId: u32,
+    outcomeId: u32,
+    active: Option<bool>,
+    priceDec: Option<f64>
+}
+
+#[derive(Deserialize, Debug)]
+struct UnsupportedUpdate(String);
 
 fn extract_ip_address(html_page: &String) -> Option<String> {
     let re = Regex::new(r#"config\["ip"] = "([\d|.]+)";"#).unwrap();
@@ -218,26 +321,24 @@ fn extract_events_types(page: NodeRef) -> Result<Vec<String>> {
 
 fn extract_events_ids(page: NodeRef) -> Result<Vec<u32>> {
     let events_nodes = try!(page.query_all(".event_name"));
-    
-    let events_ids = events_nodes
-        .filter_map(|event_node| {
-            let class = event_node.get_attr("class").unwrap();
-            let event_id = &class[15..]; // "event_name evt_123" => "123"
+    let mut events_ids = Vec::new();
 
-            return match event_id.parse::<u32>() {
-                Ok(event_id) => Some(event_id),
-                Err(err) => {
-                    warn!("Whoa, we have met some wierd class: {}, Erorr: {}", class, err);
+    for event_node in events_nodes {
+        let classes = try!(event_node.get_attr("class"));
+        // TODO(universome): why the fuck classes have to be mutable?
+        let mut classes = classes.split_whitespace();
+        let event_id: u32 = match classes.find(|c| c.starts_with("evt_")) {
+            Some(c) => try!(c.trim_left_matches("evt_").parse()),
+            None => continue
+        };
 
-                    None
-                }
-            }
-        })
-        .collect();
+        events_ids.push(event_id);
+    }
 
     Ok(events_ids)
 }
 
+// TODO(universome): We should return vec of possible offers.
 fn create_offer_from_event(event: &Event) -> Result<Option<Offer>> {
     let ts = try!(time::strptime(&event.startAt, "%Y-%m-%dT%H:%M:%SZ")).to_timespec();
     let kind = get_kind_from_event(event);
@@ -253,6 +354,18 @@ fn create_offer_from_event(event: &Event) -> Result<Option<Offer>> {
         kind: kind.unwrap(),
         outcomes: outcomes.unwrap()
     }))
+}
+
+fn create_dummy_offer_from_event(event: &Event) -> Result<Offer> {
+    let ts = try!(time::strptime(&event.startAt, "%Y-%m-%dT%H:%M:%SZ")).to_timespec();
+    let kind = get_kind_from_event(event);
+
+    Ok(Offer {
+        inner_id: event.eventId as u64,
+        date: ts.sec as u32,
+        kind: kind.unwrap(),
+        outcomes: Vec::new()
+    })
 }
 
 fn get_kind_from_event(event: &Event) -> Option<Kind> {
@@ -279,12 +392,21 @@ fn get_kind_from_event(event: &Event) -> Option<Kind> {
     None
 }
 
-fn get_outcomes_from_event(event: &Event) -> Option<Vec<Outcome>> {
+fn get_outcomes_from_event(event: &Event) -> Option<Vec<AladdinOutcome>> {
     let market = event.markets.iter()
         .find(|market| market.typeCname == "win-draw-win" || market.typeCname == "to-win");
 
     if market.is_none() {
         return None;
+    }
+
+    match market {
+        Some(market) => {
+            if market.outcomes.iter().any(|o| o.priceDec.is_none()) {
+                return None;
+            }
+        },
+        None => return None
     }
 
     Some(market.unwrap().outcomes.iter().map(|outcome| {
@@ -296,6 +418,50 @@ fn get_outcomes_from_event(event: &Event) -> Option<Vec<Outcome>> {
 
         let title = if title == "Draw" { DRAW.to_owned() } else { title };
 
-        Outcome(title, outcome.priceDec)
+        AladdinOutcome(title, outcome.priceDec.unwrap())
     }).collect())
+}
+
+fn apply_update(event: &mut Event, update: &Update) -> bool {
+    match update {
+        &Update::EventUpdate(ref u) => apply_event_update(event, u),
+        &Update::MarketUpdate(ref u) => apply_market_update(event, u),
+        &Update::OutcomeUpdate(ref u) => apply_outcome_update(event, u),
+        _ => false
+    }
+}
+
+fn apply_event_update(event: &mut Event, event_update: &EventUpdate) -> bool {
+    event.active = event_update.active;
+    event.live = event_update.live;
+
+    true
+}
+
+fn apply_market_update(event: &mut Event, market_update: &MarketUpdate) -> bool {
+    let market = match event.markets.iter_mut().find(|m| m.marketId == market_update.marketId) {
+        Some(m) => m,
+        None => return false
+    };
+
+    market.active = market_update.active;
+
+    true
+}
+
+fn apply_outcome_update(event: &mut Event, outcome_update: &OutcomeUpdate) -> bool {
+    let market = match event.markets.iter_mut().find(|m| m.marketId == outcome_update.marketId) {
+        Some(m) => m,
+        None => return false
+    };
+
+    let outcome = match market.outcomes.iter_mut().find(|o| o.outcomeId == outcome_update.outcomeId) {
+        Some(o) => o,
+        None => return false
+    };
+
+    outcome.priceDec = outcome_update.priceDec.or(outcome.priceDec);
+    outcome.active = outcome_update.active.unwrap_or(outcome.active);
+
+    true
 }
