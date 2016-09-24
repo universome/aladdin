@@ -1,6 +1,7 @@
 use std::ops::{Add, Sub, Mul};
 use std::convert::From;
 use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::convert::Into;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Currency(pub i64);
@@ -61,6 +62,12 @@ impl From<f64> for Currency {
     }
 }
 
+impl Into<f64> for Currency {
+    fn into(self) -> f64 {
+        (self.0 as f64) / 100.
+    }
+}
+
 #[test]
 fn test_addition() {
     assert_eq!(Currency(2) + Currency(3), Currency(5));
@@ -82,11 +89,18 @@ fn test_multiplication() {
 }
 
 #[test]
-fn test_convertion() {
+fn test_from_conversion() {
     use std::f64;
 
     assert_eq!(Currency::from(15.), Currency(1500));
     assert_eq!(Currency::from(15.785), Currency(1579));
     assert_eq!(Currency::from(f64::NAN), Currency(0));
     assert_eq!(Currency::from(f64::INFINITY), Currency(0));
+}
+
+#[test]
+fn test_into_conversion() {
+    let float: f64 = Currency(15).into();
+    
+    assert_eq!(float, 0.15);
 }
