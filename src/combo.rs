@@ -43,7 +43,7 @@ const BET_SCHEMA: &str = "bet(
     coef    REAL    NOT NULL,
     stake   REAL    NOT NULL,
     profit  REAL    NOT NULL,
-    placed  BOOLEAN NOT NULL
+    placed  BOOLEAN NOT NULL,
 
     PRIMARY KEY(host, id)
 )";
