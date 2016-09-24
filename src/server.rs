@@ -12,11 +12,14 @@ use time;
 
 use base::logger;
 use base::config::CONFIG;
-use arbitrer::{self, Bookie, Events, MarkedOffer, OldCombo};
+use arbitrer::{self, Bookie, Events, MarkedOffer};
+use combo::{self, Combo};
 
 lazy_static! {
     static ref PORT: u16 = CONFIG.lookup("server.port")
         .unwrap().as_integer().unwrap() as u16;
+    static ref COMBO_COUNT: u32 = CONFIG.lookup("server.combo-count")
+        .unwrap().as_integer().unwrap() as u32;
 }
 
 pub fn run() {
@@ -55,10 +58,8 @@ fn send_index(res: Response) {
 
     render_bookies(&mut buffer, &arbitrer::BOOKIES);
 
-    {
-        let combo_history = arbitrer::acquire_combo_history();
-        render_combo_history(&mut buffer, &*combo_history);
-    }
+    let combos = combo::load_recent(*COMBO_COUNT);
+    render_combos(&mut buffer, &combos);
 
     {
         let events = arbitrer::acquire_events();
@@ -130,26 +131,29 @@ fn render_bookies(b: &mut String, bookies: &[Bookie]) {
     }
 }
 
-fn render_combo_history(b: &mut String, combo_history: &VecDeque<OldCombo>) {
-    if combo_history.is_empty() {
+fn render_combos(b: &mut String, combos: &[Combo]) {
+    if combos.is_empty() {
         return;
     }
 
     writeln!(b, "# Recent combos");
 
-    for combo in combo_history {
-        writeln!(b, "|`[{date}]`|`{start}`|{kind:?}|||",
-                 date = format_date(combo.date, "%d/%m %R"),
-                 start = format_date(combo.head.date, "%d/%m %R"),
-                 kind = combo.head.kind);
+    for combo in combos {
+        let approx_expiry = combo.bets[0].expiry;
 
-        writeln!(b, "|-|-|:-:|-|-|");
+        writeln!(b, "|`[{date}]`|{kind}|`{start_date}`|`{start_time}`|",
+                 date = format_date(combo.date, "%d/%m %R"),
+                 start_date = format_date(approx_expiry, "%d/%m"),
+                 start_time = format_date(approx_expiry, "%R"),
+                 kind = combo.kind);
+
+        writeln!(b, "|-|-|-:|-:|");
 
         for bet in &combo.bets {
-            writeln!(b, "|{team} `{odds:.2}`|{host}|{size}|{profit:+.1}%|",
-                     team = bet.outcome.0,
-                     odds = bet.outcome.1,
-                     host = bet.bookie.host,
+            writeln!(b, "|{title} `{coef:.2}`|{host}|{size}|{profit:+.1}%|",
+                     title = if let Some(ref s) = bet.title { s } else { "*draw*" },
+                     coef = bet.coef,
+                     host = bet.host,
                      size = bet.size,
                      profit = bet.profit * 100.);
         }

@@ -1,7 +1,7 @@
 use std::thread;
 use std::cmp::Ordering;
 use std::time::Duration;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicIsize};
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::mpsc::{self, Sender, Receiver};
@@ -59,23 +59,9 @@ pub struct MarkedOffer(pub &'static Bookie, pub Offer);
 pub type Event = Vec<MarkedOffer>;
 pub type Events = HashMap<Offer, Event>;
 
-pub struct OldCombo {
-    pub date: u32,
-    pub head: Offer,
-    pub bets: Vec<OldBet>
-}
-
-pub struct OldBet {
-    pub bookie: &'static Bookie,
-    pub outcome: Outcome,
-    pub size: Currency,
-    pub profit: f64
-}
-
 lazy_static! {
     pub static ref BOOKIES: Vec<Bookie> = init_bookies();
     static ref EVENTS: RwLock<Events> = RwLock::new(HashMap::new());
-    static ref COMBO_HISTORY: RwLock<VecDeque<OldCombo>> = RwLock::new(VecDeque::new());
 
     // TODO(loyd): add getters to `config` module and refactor this.
     static ref BET_SIZE: Currency = CONFIG.lookup("arbitrer.bet-size")
@@ -94,14 +80,6 @@ pub fn acquire_events() -> RwLockReadGuard<'static, Events> {
 
 fn acquire_events_mut() -> RwLockWriteGuard<'static, Events> {
     EVENTS.write().unwrap()
-}
-
-pub fn acquire_combo_history() -> RwLockReadGuard<'static, VecDeque<OldCombo>> {
-    COMBO_HISTORY.read().unwrap()
-}
-
-fn acquire_combo_history_mut() -> RwLockWriteGuard<'static, VecDeque<OldCombo>> {
-    COMBO_HISTORY.write().unwrap()
 }
 
 pub fn run() {
@@ -349,8 +327,9 @@ fn realize_event(event: &Event) {
         }
 
         if *LOWER_PROFIT_THRESHOLD <= min_profit && min_profit <= *UPPER_PROFIT_THRESHOLD {
+            // TODO(loyd): drop offers instead of whole events.
             if no_bets_on_event(event) {
-                add_combo(event, &outcomes);
+                save_combo(event, &outcomes);
                 place_bet(event, &outcomes);
             }
         } else if max_profit > *UPPER_PROFIT_THRESHOLD {
@@ -389,32 +368,14 @@ fn comparative_permutation(outcomes: &mut [&Outcome], ideal: &[&Outcome]) {
 }
 
 fn no_bets_on_event(event: &Event) -> bool {
-    let history = acquire_combo_history();
-    history.iter().position(|c| c.head == event[0].1).is_none()
+    // TODO(loyd): what about bulk checking?
+    event.iter().any(|marked| combo::contains(&marked.0.host, marked.1.inner_id))
 }
 
-fn add_combo(event: &Event, outcomes: &[MarkedOutcome]) {
-    let mut history = acquire_combo_history_mut();
-    let now = time::get_time().sec as u32;
-
-    // Remove outdated combos.
-    while history.front().map_or(false, |c| c.date + *COMBO_HISTORY_SIZE <= now) {
-        let front = history.pop_front().unwrap();
-        debug!("Drop out combo for {}", front.head);
-    }
-
+fn save_combo(event: &Event, outcomes: &[MarkedOutcome]) {
     debug!("New combo for {}", event[0].1);
 
-    history.push_back(OldCombo {
-        date: now,
-        head: event[0].1.clone(),
-        bets: outcomes.iter().map(|m| OldBet {
-            bookie: event[m.market].0,
-            outcome: m.outcome.clone(),
-            size: m.rate * *BET_SIZE,
-            profit: m.profit
-        }).collect()
-    });
+    let now = time::get_time().sec as u32;
 
     combo::save(Combo {
         date: now,
