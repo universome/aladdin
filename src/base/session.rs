@@ -122,6 +122,16 @@ impl Session {
         self.post(path, &encoded_body, headers)
     }
 
+    pub fn get_cookie(&self, cookie_name: &str) -> Option<String> {
+        for cookie in self.cookie.lock().unwrap().iter() {
+            if cookie.name == cookie_name {
+                return Some(cookie.value.clone());
+            }
+        }
+
+        None
+    }
+
     fn request(&self, path: &str, body: Option<&str>, mut headers: Headers) -> Result<Response> {
         let url = format!("https://{}{}", self.host, path);
 
