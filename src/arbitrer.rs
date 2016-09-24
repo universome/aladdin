@@ -381,7 +381,26 @@ fn no_bets_on_event(event: &Event) -> bool {
 }
 
 fn distribute_currency(pairs: &[(&MarkedOffer, &MarkedOutcome)]) -> Vec<Currency> {
-    Vec::new()
+    let mut base_rate = pairs[0].1.rate;
+
+    for &(_, marked_outcome) in pairs {
+        if marked_outcome.rate < base_rate { base_rate = marked_outcome.rate }
+    }
+
+    let mut stakes = Vec::with_capacity(pairs.len());
+
+    for &(marked_offer, marked_outcome) in pairs {
+        let stake = marked_outcome.rate / base_rate * *BASE_STAKE;
+
+        if stake > *MAX_STAKE {
+            warn!("Too high stake ({})", stake);
+            return Vec::new();
+        }
+
+        stakes.push(stake);
+    }
+
+    stakes
 }
 
 fn save_combo(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
