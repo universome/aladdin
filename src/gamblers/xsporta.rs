@@ -1,8 +1,9 @@
 #![allow(non_snake_case)]
 
 use std::collections::{HashMap, HashSet};
+use serde_json as json;
 
-use base::error::Result;
+use base::error::{Result, Error};
 use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
@@ -101,8 +102,40 @@ impl Gambler for XBet {
         Ok(())
     }
 
-    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Result<()> {
-        unimplemented!();
+    fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
+        let stake: f64 = stake.into();
+        let hash = self.session.get_cookie("uhash").unwrap();
+        let user_id = self.session.get_cookie("ua").unwrap();
+        let result = match offer.outcomes.iter().position(|o| o == &outcome).unwrap() {
+            0 => 1,
+            1 => 3,
+            2 => 2,
+            _ => return Err(Error::from("Outcome not found in offer"))
+        };
+
+        let path = "/en/dataLineLive/put_bets_common.php";
+        let request = PlaceBetRequest {
+            Events: vec![
+                PlaceBetRequestEvent {
+                    GameId: offer.inner_id as u32,
+                    Coef: outcome.1,
+                    Kind: 3,
+                    Type: result
+                }
+            ],
+            Summ: stake.to_string(),
+            UserId: user_id,
+            hash: hash
+        };
+
+        let raw_response = try!(self.session.post_json(path, request));
+        let response: PlaceBetResponse = try!(json::from_reader(raw_response));
+
+        if !response.Success {
+            return Err(From::from(response.Error));
+        }
+
+        Ok(())
     }
 }
 
@@ -128,6 +161,28 @@ struct Info {
 struct Event {
     C: f64,
     T: u32
+}
+
+#[derive(Serialize, Debug)]
+struct PlaceBetRequest {
+    Events: Vec<PlaceBetRequestEvent>,
+    Summ: String,
+    UserId: String,
+    hash: String
+}
+
+#[derive(Serialize, Debug)]
+struct PlaceBetRequestEvent {
+    GameId: u32,
+    Coef: f64,
+    Kind: u32,
+    Type: u32
+}
+
+#[derive(Deserialize, Debug)]
+struct PlaceBetResponse {
+    Error: String,
+    Success: bool
 }
 
 fn grab_offers(message: Message) -> Result<Vec<Offer>> {

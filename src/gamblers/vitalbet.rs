@@ -146,7 +146,7 @@ impl Gambler for VitalBet {
             None => return Err(Error::from("Match does not have any odds"))
         };
 
-        let request_data = PlaceBetRequestData {
+        let request_data = PlaceBetRequest {
             AcceptBetterOdds: true,
             Selections: vec![
                 Bet {
@@ -163,7 +163,7 @@ impl Gambler for VitalBet {
         };
 
         let response = try!(self.session.post_json("/api/betslip/place", request_data));
-        let response: ErrorPlaceBetResponse = try!(json::from_reader(response));
+        let response: PlaceBetResponse = try!(json::from_reader(response));
 
         match response.ErrorMessage {
             Some(m) => Err(Error::from(m)),
@@ -311,7 +311,7 @@ struct PrematchOddUpdate(u32, f64, i32);
 struct PrematchMatchUpdate(u32, i32, i64);
 
 #[derive(Serialize, Debug)]
-struct PlaceBetRequestData {
+struct PlaceBetRequest {
     Selections: Vec<Bet>,
     AcceptBetterOdds: bool
 }
@@ -330,7 +330,7 @@ struct BetOutcome {
 }
 
 #[derive(Deserialize, Debug)]
-struct ErrorPlaceBetResponse {
+struct PlaceBetResponse {
     ErrorMessage: Option<String>,
 }
 
