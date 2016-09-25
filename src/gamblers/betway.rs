@@ -91,7 +91,7 @@ impl Gambler for BetWay {
         let response = try!(self.session.post_json("/betapi/v4/getCustomerInfo", request_data));
         let balance: Balance = try!(json::from_reader(response));
 
-        Ok(Currency::from(balance.response.sbBalance))
+        Ok(Currency(balance.response.sbBalance))
     }
 
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
@@ -178,7 +178,7 @@ struct Balance {
 
 #[derive(Deserialize, Debug)]
 struct BalanceResponse {
-    sbBalance: f64
+    sbBalance: i64
 }
 
 #[derive(Serialize, Debug)]
