@@ -51,6 +51,10 @@ impl Bookie {
     fn set_balance(&self, balance: Currency) {
         self.balance.store(balance.0 as isize, Relaxed);
     }
+
+    fn hold_balance(&self, chunk: Currency) {
+        self.balance.fetch_sub(chunk.0 as isize, Relaxed);
+    }
 }
 
 #[derive(Clone)]
@@ -449,6 +453,8 @@ fn place_bet(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
         let offer = marked_offer.1.clone();
         let outcome = marked_outcome.outcome.clone();
 
+        bookie.hold_balance(stake);
+
         thread::spawn(move || {
             let mut guard = Guard(bookie, false);
 
@@ -457,14 +463,14 @@ fn place_bet(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
                 return;
             }
 
+            combo::mark_as_placed(&bookie.host, offer.inner_id);
+
             if let Err(error) = bookie.gambler.check_balance().map(|b| bookie.set_balance(b)) {
                 error!(target: bookie.module, "While checking balance: {}", error);
                 return;
             }
 
             guard.1 = true;
-
-            combo::mark_as_placed(&bookie.host, offer.inner_id);
         });
     }
 }

@@ -27,7 +27,7 @@ pub fn run() {
     let mut server = Server::http(("0.0.0.0", *PORT)).unwrap();
 
     server.keep_alive(None);
-    server.handle_threads(handle, 1).unwrap();
+    server.handle_threads(handle, 2).unwrap();
 }
 
 fn handle(req: Request, res: Response) {
