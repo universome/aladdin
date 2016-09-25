@@ -78,7 +78,7 @@ impl Display for Offer {
         try!(write!(f, "{} {:?} #{} (", date, self.kind, self.inner_id));
 
         for (idx, outcome) in self.outcomes.iter().enumerate() {
-            try!(write!(f, "{}{}", if idx > 0 { "|" } else { "" }, outcome.0));
+            try!(write!(f, "{}{} x{}", if idx > 0 { "|" } else { "" }, outcome.0, outcome.1));
         }
 
         write!(f, ")")

@@ -7,7 +7,7 @@ use kuchiki::traits::TendrilSink;
 use serde_json as json;
 use time;
 
-use base::error::Result;
+use base::error::{Result, Error};
 use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
@@ -146,8 +146,44 @@ impl Gambler for CybBet {
         Ok(())
     }
 
-    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Result<()> {
-        unimplemented!();
+    fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
+        let stake: f64 = stake.into();
+
+        let result = if outcome.0 == DRAW { 0 } else {
+            1 + offer.outcomes.iter().position(|o| o == &outcome).unwrap()
+        };
+
+        let bets = format!(r#"{{
+            "single": [{{
+                "gameId": "{id}",
+                "subGameId": "undefined",
+                "result": "{result}",
+                "isSubgame": "0",
+                "isTournament": "0",
+                "type": "single",
+                "koef": {coef},
+                "tipMoney": "2",
+                "summ": {stake}
+            }}],
+            "express": [],
+            "expressGame": []
+        }}"#,
+            id = offer.inner_id,
+            result = result,
+            coef = outcome.1,
+            stake = stake);
+
+        let mut response = try!(self.session.post_form("/games/bet", &[("bets", &bets)]));
+
+        let mut string = String::new();
+        try!(response.read_to_string(&mut string));
+
+        if string.contains("messageSuccess") {
+            Ok(())
+        } else {
+            // TODO(loyd): what about doing something more clever?
+            Err(Error::from(string))
+        }
     }
 }
 
