@@ -42,7 +42,7 @@ impl Gambler for XBet {
                 ("authDV", &auth_dv),
                 ("uLogin", username),
                 ("uPassword", password)
-            ])
+            ], &[])
             .map(|_| ())
     }
 

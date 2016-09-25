@@ -98,7 +98,9 @@ impl Session {
         Ok(try!(json::from_str(&string)))
     }
 
-    pub fn post_form(&self, path: &str, data: &[(&str, &str)]) -> Result<Response> {
+    pub fn post_form(&self, path: &str, data: &[(&str, &str)],
+                     addl_headers: &[(&'static str, &str)]) -> Result<Response>
+    {
         let encoded = UrlSerializer::new(String::new())
             .extend_pairs(data)
             .finish();
@@ -107,6 +109,10 @@ impl Session {
         headers.set(ContentType(mime!(Application/WwwFormUrlEncoded)));
         headers.set(Accept(vec![qitem(mime!(Application/Json))]));
         headers.set(XRequestedWith("XMLHttpRequest".to_owned()));
+
+        for &(name, value) in addl_headers {
+            headers.set_raw(name, vec![value.as_bytes().to_vec()]);
+        }
 
         self.post(path, &encoded, headers)
     }
