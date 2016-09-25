@@ -2,13 +2,14 @@
 
 use std::collections::HashMap;
 use std::result::Result as StdResult;
+use std::sync::Mutex;
 use kuchiki::NodeRef;
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
 use serde_json as json;
 use time;
 
-use base::error::Result;
+use base::error::{Result, Error};
 use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
@@ -20,7 +21,8 @@ use events::Outcome as Outcome;
 use events::kinds::*;
 
 pub struct BetWay {
-    session: Session
+    session: Session,
+    state: Mutex<State>
 }
 
 lazy_static! {
@@ -32,7 +34,12 @@ lazy_static! {
 impl BetWay {
     pub fn new() -> BetWay {
         BetWay {
-            session: Session::new("sports.betway.com")
+            session: Session::new("sports.betway.com"),
+            state: Mutex::new(State {
+                events: HashMap::new(),
+                user_id: 0,
+                server_id: 0
+            })
         }
     }
 
@@ -57,14 +64,40 @@ impl BetWay {
 
         Ok(try!(json::from_reader(response)))
     }
+
+    fn get_customer_info(&self) -> Result<CustomerInfoResponse> {
+        let main_page = try!(self.session.get_raw_html("/"));
+        let server_id = try!(extract_server_id(&main_page).ok_or("Could not extract server_id"));
+
+        let request_data = CustomerInfoRequest {
+            serverId: server_id,
+            lang: "en",
+            userId: 1
+        };
+
+        let response = try!(self.session.post_json("/betapi/v4/getCustomerInfo", request_data));
+        let customer_info: CustomerInfo = try!(json::from_reader(response));
+
+        Ok(customer_info.response)
+    }
+
+    fn set_user_state(&self) -> Result<()> {
+        let mut state = try!(self.state.lock());
+        let customer_info = try!(self.get_customer_info());
+
+        state.user_id = customer_info.userId;
+        state.server_id = customer_info.serverId;
+
+        Ok(())
+    }
 }
 
 impl Gambler for BetWay {
     fn authorize(&self, username: &str, password: &str) -> Result<()> {
         let main_page = try!(self.session.get_raw_html("/"));
 
-        let ip_address = try!(extract_ip_address(&main_page).ok_or("Could not extract ip_address"));
         let server_id = try!(extract_server_id(&main_page).ok_or("Could not extract server_id"));
+        let ip_address = try!(extract_ip_address(&main_page).ok_or("Could not extract ip_address"));
         let client_type = try!(extract_client_type(&main_page).ok_or("Could not extract client_type"));
 
         let body = LoginRequestData {
@@ -79,35 +112,28 @@ impl Gambler for BetWay {
     }
 
     fn check_balance(&self) -> Result<Currency> {
-        let main_page = try!(self.session.get_raw_html("/"));
-        let server_id = try!(extract_server_id(&main_page).ok_or("Could not extract server_id"));
+        let customer_info = try!(self.get_customer_info());
 
-        let request_data = BalanceRequestData {
-            serverId: server_id,
-            lang: "en",
-            userId: 1
-        };
-
-        let response = try!(self.session.post_json("/betapi/v4/getCustomerInfo", request_data));
-        let balance: Balance = try!(json::from_reader(response));
-
-        Ok(Currency(balance.response.sbBalance))
+        Ok(Currency(customer_info.sbBalance))
     }
 
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+        try!(self.set_user_state());
+
         let mut timer = Periodic::new(3600);
-        let mut events = HashMap::new();
         let mut connection = try!(Connection::new("sports.betway.com/emoapi/push"));
         let mut is_inited = false;
         let session = self.session.get_cookie("SESSION").unwrap();
 
         loop {
+            let mut state = self.state.lock().unwrap();
+
             if !is_inited || timer.next_if_elapsed() {
                 let events_ids = try!(self.get_esports_events_ids());
                 let current_events = try!(self.get_events(&events_ids)).result;
 
                 for event in current_events {
-                    if events.contains_key(&event.eventId) {
+                    if state.events.contains_key(&event.eventId) {
                         continue;
                     }
 
@@ -123,7 +149,7 @@ impl Gambler for BetWay {
 
                     try!(connection.send(event_subscription));
 
-                    events.insert(event.eventId, event);
+                    state.events.insert(event.eventId, event);
                 }
 
                 is_inited = true;
@@ -132,9 +158,9 @@ impl Gambler for BetWay {
             let update = try!(connection.receive::<Update>());
 
             if let Some(mut event) = match update {
-                Update::EventUpdate(ref u) => events.get_mut(&u.eventId),
-                Update::MarketUpdate(ref u) => events.get_mut(&u.eventId),
-                Update::OutcomeUpdate(ref u) => events.get_mut(&u.eventId),
+                Update::EventUpdate(ref u) => state.events.get_mut(&u.eventId),
+                Update::MarketUpdate(ref u) => state.events.get_mut(&u.eventId),
+                Update::OutcomeUpdate(ref u) => state.events.get_mut(&u.eventId),
                 _ => None
             } {
                 if !apply_update(&mut event, &update) {
@@ -150,9 +176,74 @@ impl Gambler for BetWay {
         }
     }
 
-    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Result<()> {
-        unimplemented!();
+    fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
+        let state = self.state.lock().unwrap();
+        let ref event = state.events.get(&(offer.inner_id as u32)).unwrap();
+        let market_id = get_good_market_id(&event).unwrap();
+        let market = event.markets.iter().find(|m| m.marketId == market_id).unwrap();
+        let outcome = market.outcomes.iter().find(|o| o.get_title() == outcome.0).unwrap();
+
+        let path = "/betapi/v4/initiateBets";
+        let request_data = InitiateBetRequest {
+            acceptPriceChange: 2,
+            betPlacements: vec![
+                BetPlacement {
+                    numLines: 1,
+                    selections: vec![
+                        Bet {
+                            priceType: 1,
+                            eventId: event.eventId,
+                            handicap: 0,
+                            marketId: market.marketId,
+                            subselections: vec![
+                                BetOutcomeSelection {
+                                    outcomeId: outcome.outcomeId
+                                }
+                            ],
+                            priceNum: outcome.priceNum.unwrap(),
+                            priceDen: outcome.priceDen.unwrap()
+                        }
+                    ],
+                    stakePerLine: stake.0 as u32,
+                    systemCname: "single",
+                    useFreeBet: false,
+                    eachWay: false
+                }
+            ],
+            lang: "en",
+            serverId: state.server_id,
+            userId: state.user_id
+        };
+
+        let response = try!(self.session.post_json(path, request_data));
+        let response: InitiateBetResponse = try!(json::from_reader(response));
+
+        if !response.success || response.response.is_none() {
+            return Err(Error::from(format!("Initiating bet failed: {:?}", response)));
+        }
+
+        let path = "/betapi/v4/lookupBets";
+        let request_data = PlaceBetRequest {
+            betRequestId: response.response.unwrap().betRequestId.unwrap(),
+            userId: state.user_id,
+            serverId: state.server_id
+        };
+
+        let response = try!(self.session.post_json(path, request_data));
+        let response: PlaceBetResponse = try!(json::from_reader(response));
+
+        if !response.success || response.error.is_some() {
+            return Err(Error::from(format!("Placing bet failed: {:?}", response)));
+        }
+
+        Ok(())
     }
+}
+
+struct State {
+    events: HashMap<u32, Event>,
+    user_id: u32,
+    server_id: u32
 }
 
 #[derive(Serialize, Debug)]
@@ -165,20 +256,22 @@ struct LoginRequestData<'a> {
 }
 
 #[derive(Serialize, Debug)]
-struct BalanceRequestData<'a> {
+struct CustomerInfoRequest<'a> {
     userId: u32,
     lang: &'a str,
     serverId: u32
 }
 
 #[derive(Deserialize, Debug)]
-struct Balance {
-    response: BalanceResponse
+struct CustomerInfo {
+    response: CustomerInfoResponse
 }
 
 #[derive(Deserialize, Debug)]
-struct BalanceResponse {
-    sbBalance: i64
+struct CustomerInfoResponse {
+    sbBalance: i64,
+    userId: u32,
+    serverId: u32
 }
 
 #[derive(Serialize, Debug)]
@@ -217,9 +310,17 @@ struct Market {
 struct BetwayOutcome {
     outcomeId: u32,
     priceDec: Option<f64>,
+    priceNum: Option<u32>,
+    priceDen: Option<u32>,
     name: String,
     active: bool,
     typeCname: String
+}
+
+impl BetwayOutcome {
+    fn get_title(&self) -> String {
+        self.name.trim_left_matches("[").trim_right_matches("]").to_string()
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -284,7 +385,9 @@ struct OutcomeUpdate {
     marketId: u32,
     outcomeId: u32,
     active: Option<bool>,
-    priceDec: Option<f64>
+    priceDec: Option<f64>,
+    priceNum: Option<u32>,
+    priceDen: Option<u32>
 }
 
 #[derive(Deserialize, Debug)]
@@ -390,27 +493,38 @@ fn get_kind_from_event(event: &Event) -> Option<Kind> {
     None
 }
 
-fn get_outcomes_from_event(event: &Event) -> Option<Vec<Outcome>> {
-    let market = event.markets.iter()
-        .find(|market| market.typeCname == "win-draw-win" || market.typeCname == "to-win");
+fn get_good_market_id(event: &Event) -> Option<u32> {
+    let markets = event.markets.iter()
+        .filter(|m| m.cname == "match-winner" || m.cname == "win-draw-win")
+        .collect::<Vec<_>>();
 
-    if market.is_none() {
+    let market = match markets.len() {
+        0 => return None,
+        1 => markets[0],
+        _ => {
+            warn!("Can't choose market from event: {:?}", event);
+
+            return None;
+        }
+    };
+
+    if market.outcomes.iter().any(|o| o.priceDec.is_none()) {
         return None;
     }
 
-    match market {
-        Some(market) => {
-            if market.outcomes.iter().any(|o| o.priceDec.is_none()) {
-                return None;
-            }
-        },
-        None => return None
-    }
+    Some(market.marketId)
+}
 
-    Some(market.unwrap().outcomes.iter().map(|outcome| {
+fn get_outcomes_from_event(event: &Event) -> Option<Vec<Outcome>> {
+    let market = match get_good_market_id(event) {
+        Some(id) => event.markets.iter().find(|m| m.marketId == id).unwrap(),
+        None => return None
+    };
+
+    Some(market.outcomes.iter().map(|outcome| {
         // Converting "[NaVi]" into "NaVi".
-        let title = outcome.name.trim_left_matches("[").trim_right_matches("]").to_string();
-        let title = if title == "Draw" { DRAW.to_owned() } else { title };
+        let name = outcome.get_title();
+        let title = if name == "Draw" { DRAW.to_owned() } else { name };
 
         Outcome(title, outcome.priceDec.unwrap())
     }).collect())
@@ -455,7 +569,80 @@ fn apply_outcome_update(event: &mut Event, outcome_update: &OutcomeUpdate) -> bo
     };
 
     outcome.priceDec = outcome_update.priceDec.or(outcome.priceDec);
+    outcome.priceDen = outcome_update.priceDen.or(outcome.priceDen);
+    outcome.priceNum = outcome_update.priceNum.or(outcome.priceNum);
     outcome.active = outcome_update.active.unwrap_or(outcome.active);
 
     true
+}
+
+#[derive(Serialize, Debug)]
+struct InitiateBetRequest<'a> {
+    acceptPriceChange: u32,
+    betPlacements: Vec<BetPlacement<'a>>,
+    lang: &'a str,
+    serverId: u32,
+    userId: u32
+}
+
+#[derive(Serialize, Debug)]
+struct BetPlacement<'a> {
+    numLines: u32,
+    selections: Vec<Bet>,
+    stakePerLine: u32,
+    systemCname: &'a str,
+    useFreeBet: bool,
+    eachWay: bool
+}
+
+#[derive(Serialize, Debug)]
+struct Bet {
+    priceType: u32,
+    eventId: u32,
+    handicap: u32,
+    marketId: u32,
+    subselections: Vec<BetOutcomeSelection>,
+    priceNum: u32,
+    priceDen: u32
+}
+
+#[derive(Serialize, Debug)]
+struct BetOutcomeSelection {
+    outcomeId: u32
+}
+
+#[derive(Deserialize, Debug)]
+struct InitiateBetResponse {
+    success: bool,
+    response: Option<InitiateBetResponseData>
+}
+
+#[derive(Deserialize, Debug)]
+struct InitiateBetResponseData {
+    betRequestId: Option<String>
+}
+
+#[derive(Serialize, Debug)]
+struct PlaceBetRequest {
+    betRequestId: String,
+    userId: u32,
+    serverId: u32
+}
+
+#[derive(Deserialize, Debug)]
+struct PlaceBetResponse {
+    success: bool,
+    error: Option<PlaceBetError>
+}
+
+#[derive(Deserialize, Debug)]
+struct PlaceBetError {
+    message: String,
+    details: Option<Vec<PlaceBetErrorDetail>>
+}
+
+#[derive(Deserialize, Debug)]
+struct PlaceBetErrorDetail {
+    min: u32,
+    max: u32
 }
