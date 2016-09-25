@@ -19,8 +19,8 @@ extern crate mime;
 extern crate serde;
 extern crate serde_json;
 extern crate toml;
-extern crate crossbeam;
 extern crate websocket;
+extern crate rusqlite;
 
 use std::thread;
 
@@ -30,6 +30,7 @@ mod gamblers;
 mod opportunity;
 mod arbitrer;
 mod server;
+mod combo;
 
 fn main() {
     base::logger::init().unwrap();

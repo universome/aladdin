@@ -7,8 +7,9 @@ FLAGS=
 MODE=debug
 USER=aladdin
 HOST=46.101.244.208
-MAIN=\~/aladdin
-LOG=\~/aladdin.log
+DIR=\~
+MAIN=aladdin
+LOG=aladdin.log
 ENV=RUST_LOG=aladdin=info
 
 if [ $MODE == release ]; then
@@ -19,9 +20,9 @@ function remote {
     ssh "$USER@$HOST" "$1"
 }
 
-STATUS_CMD="start-stop-daemon --status --exec $MAIN"
-START_CMD="$ENV start-stop-daemon --start --oknodo --no-close --background --exec $MAIN > $LOG 2>&1"
-STOP_CMD="start-stop-daemon --stop --oknodo --retry 10 --exec $MAIN"
+STATUS_CMD="start-stop-daemon --status --chdir $DIR --exec $MAIN"
+START_CMD="$ENV start-stop-daemon --start --oknodo --no-close --background --chdir $DIR --exec $MAIN > $LOG 2>&1"
+STOP_CMD="start-stop-daemon --stop --oknodo --retry 10 --chdir $DIR --exec $MAIN"
 LOG_CMD="cat $LOG"
 
 case "$1" in

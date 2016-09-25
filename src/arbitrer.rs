@@ -1,12 +1,11 @@
 use std::thread;
 use std::cmp::Ordering;
 use std::time::Duration;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicIsize};
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::mpsc::{self, Sender, Receiver};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use crossbeam;
 use time;
 
 use base::config::CONFIG;
@@ -14,6 +13,7 @@ use base::currency::Currency;
 use events::{Offer, Outcome, DRAW, fuzzy_eq};
 use gamblers::{self, BoxedGambler};
 use opportunity::{self, Strategy, MarkedOutcome};
+use combo::{self, Combo, Bet};
 
 pub struct Bookie {
     pub host: String,
@@ -58,32 +58,18 @@ pub struct MarkedOffer(pub &'static Bookie, pub Offer);
 pub type Event = Vec<MarkedOffer>;
 pub type Events = HashMap<Offer, Event>;
 
-pub struct Combo {
-    pub date: u32,
-    pub head: Offer,
-    pub bets: Vec<Bet>
-}
-
-pub struct Bet {
-    pub bookie: &'static Bookie,
-    pub outcome: Outcome,
-    pub size: Currency,
-    pub profit: f64
-}
-
 lazy_static! {
     pub static ref BOOKIES: Vec<Bookie> = init_bookies();
     static ref EVENTS: RwLock<Events> = RwLock::new(HashMap::new());
-    static ref COMBO_HISTORY: RwLock<VecDeque<Combo>> = RwLock::new(VecDeque::new());
 
     // TODO(loyd): add getters to `config` module and refactor this.
-    static ref BET_SIZE: Currency = CONFIG.lookup("arbitrer.bet-size")
+    static ref BASE_STAKE: Currency = CONFIG.lookup("arbitrer.base-stake")
         .unwrap().as_float().unwrap().into();
-    static ref COMBO_HISTORY_SIZE: u32 = CONFIG.lookup("arbitrer.history-size")
-        .unwrap().as_integer().unwrap() as u32 * 3600;
-    static ref LOWER_PROFIT_THRESHOLD: f64 = CONFIG.lookup("arbitrer.lower-profit-threshold")
+    static ref MAX_STAKE: Currency = CONFIG.lookup("arbitrer.max-stake")
+        .unwrap().as_float().unwrap().into();
+    static ref MIN_PROFIT: f64 = CONFIG.lookup("arbitrer.min-profit")
         .unwrap().as_float().unwrap();
-    static ref UPPER_PROFIT_THRESHOLD: f64 = CONFIG.lookup("arbitrer.upper-profit-threshold")
+    static ref MAX_PROFIT: f64 = CONFIG.lookup("arbitrer.max-profit")
         .unwrap().as_float().unwrap();
 }
 
@@ -95,28 +81,18 @@ fn acquire_events_mut() -> RwLockWriteGuard<'static, Events> {
     EVENTS.write().unwrap()
 }
 
-pub fn acquire_combo_history() -> RwLockReadGuard<'static, VecDeque<Combo>> {
-    COMBO_HISTORY.read().unwrap()
-}
-
-fn acquire_combo_history_mut() -> RwLockWriteGuard<'static, VecDeque<Combo>> {
-    COMBO_HISTORY.write().unwrap()
-}
-
 pub fn run() {
     let (incoming_tx, incoming_rx) = mpsc::channel();
     let (outgoing_tx, outgoing_rx) = mpsc::channel();
 
-    crossbeam::scope(|scope| {
-        for bookie in BOOKIES.iter() {
-            let incoming_tx = incoming_tx.clone();
-            let outgoing_tx = outgoing_tx.clone();
+    for bookie in BOOKIES.iter() {
+        let incoming_tx = incoming_tx.clone();
+        let outgoing_tx = outgoing_tx.clone();
 
-            scope.spawn(move || run_gambler(bookie, incoming_tx, outgoing_tx));
-        }
+        thread::spawn(move || run_gambler(bookie, incoming_tx, outgoing_tx));
+    }
 
-        process_channels(incoming_rx, outgoing_rx);
-    });
+    process_channels(incoming_rx, outgoing_rx);
 }
 
 fn init_bookies() -> Vec<Bookie> {
@@ -330,36 +306,48 @@ fn realize_event(event: &Event) {
 
     let margin = opportunity::calc_margin(&table);
 
-    if margin < 1. {
-        let outcomes = opportunity::find_best(&table, Strategy::Unbiased);
-        let mut min_profit = 1. / 0.;
-        let mut max_profit = 0.;
-
-        info!("  Opportunity exists (effective margin: {:.2}), unbiased strategy:", margin);
-
-        for &MarkedOutcome { market, outcome, rate, profit } in &outcomes {
-            let host = &event[market].0.host;
-
-            info!("    Place {:.2} on {} by {} (coef: x{:.2}, profit: {:+.1}%)",
-                  rate, outcome.0, host, outcome.1, profit * 100.);
-
-            if profit < min_profit { min_profit = profit }
-            if profit > max_profit { max_profit = profit }
-        }
-
-        if *LOWER_PROFIT_THRESHOLD <= min_profit && min_profit <= *UPPER_PROFIT_THRESHOLD {
-            if no_bets_on_event(event) {
-                add_combo(event, &outcomes);
-                place_bet(event, &outcomes);
-            }
-        } else if max_profit > *UPPER_PROFIT_THRESHOLD {
-            warn!("Suspiciously high profit ({:+.1}%)", max_profit * 100.);
-        } else {
-             debug!("  Too small profit (min: {:+.1}%, max: {:+.1}%)",
-                    min_profit * 100., max_profit * 100.);
-        }
-    } else {
+    if margin >= 1. {
         debug!("  Opportunity doesn't exist (effective margin: {:.2})", margin);
+        return;
+    }
+
+    let outcomes = opportunity::find_best(&table, Strategy::Unbiased);
+    let mut min_profit = 1. / 0.;
+    let mut max_profit = 0.;
+
+    info!("  Opportunity exists (effective margin: {:.2}), unbiased strategy:", margin);
+
+    for &MarkedOutcome { market, outcome, rate, profit } in &outcomes {
+        let host = &event[market].0.host;
+
+        info!("    Place {:.2} on {} by {} (coef: x{:.2}, profit: {:+.1}%)",
+              rate, outcome.0, host, outcome.1, profit * 100.);
+
+        if profit < min_profit { min_profit = profit }
+        if profit > max_profit { max_profit = profit }
+    }
+
+    if *MIN_PROFIT <= min_profit && min_profit <= *MAX_PROFIT {
+        // TODO(loyd): drop offers instead of whole events.
+        if !no_bets_on_event(event) {
+            return;
+        }
+
+        let pairs = outcomes.iter().map(|o| (&event[o.market], o)).collect::<Vec<_>>();
+
+        let stakes = match distribute_currency(&pairs) {
+            Some(stakes) => stakes,
+            None => return
+        };
+
+        // Save combo synchronously to prevent race condition.
+        save_combo(&pairs, &stakes);
+        place_bet(&pairs, &stakes);
+    } else if max_profit > *MAX_PROFIT {
+        warn!("Suspiciously high profit ({:+.1}%)", max_profit * 100.);
+    } else {
+        debug!("  Too small profit (min: {:+.1}%, max: {:+.1}%)",
+               min_profit * 100., max_profit * 100.);
     }
 }
 
@@ -388,36 +376,64 @@ fn comparative_permutation(outcomes: &mut [&Outcome], ideal: &[&Outcome]) {
 }
 
 fn no_bets_on_event(event: &Event) -> bool {
-    let history = acquire_combo_history();
-    history.iter().position(|c| c.head == event[0].1).is_none()
+    // TODO(loyd): what about bulk checking?
+    !event.iter().any(|marked| combo::contains(&marked.0.host, marked.1.inner_id))
 }
 
-fn add_combo(event: &Event, outcomes: &[MarkedOutcome]) {
-    let mut history = acquire_combo_history_mut();
-    let now = time::get_time().sec as u32;
+fn distribute_currency(pairs: &[(&MarkedOffer, &MarkedOutcome)]) -> Option<Vec<Currency>> {
+    let mut base_rate = pairs[0].1.rate;
 
-    // Remove outdated combos.
-    while history.front().map_or(false, |c| c.date + *COMBO_HISTORY_SIZE <= now) {
-        let front = history.pop_front().unwrap();
-        debug!("Drop out combo for {}", front.head);
+    for &(_, marked_outcome) in pairs {
+        if marked_outcome.rate < base_rate { base_rate = marked_outcome.rate }
     }
 
-    debug!("New combo for {}", event[0].1);
+    let mut stakes = Vec::with_capacity(pairs.len());
 
-    history.push_back(Combo {
-        date: now,
-        head: event[0].1.clone(),
-        bets: outcomes.iter().map(|m| Bet {
-            bookie: event[m.market].0,
-            outcome: m.outcome.clone(),
-            size: m.rate * *BET_SIZE,
-            profit: m.profit
+    for &(marked_offer, marked_outcome) in pairs {
+        let bookie = marked_offer.0;
+        let stake = marked_outcome.rate / base_rate * *BASE_STAKE;
+
+        if stake > *MAX_STAKE {
+            warn!("Too high stake ({})", stake);
+            return None;
+        }
+
+        let balance = bookie.balance();
+
+        if stake > balance {
+            warn!("Not enough money on {} ({}, but required {})", bookie.host, balance, stake);
+            return None;
+        }
+
+        stakes.push(stake);
+    }
+
+    Some(stakes)
+}
+
+fn save_combo(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
+    debug_assert_eq!(pairs.len(), stakes.len());
+
+    combo::save(Combo {
+        date: time::get_time().sec as u32,
+        kind: format!("{:?}", (pairs[0].0).1.kind),
+        bets: pairs.iter().zip(stakes.iter()).map(|(&(m, o), stake)| Bet {
+            host: m.0.host.clone(),
+            id: m.1.inner_id,
+            title: if o.outcome.0 == DRAW { None } else { Some(o.outcome.0.clone()) },
+            expiry: m.1.date,
+            coef: o.outcome.1,
+            stake: *stake,
+            profit: o.profit,
+            placed: false
         }).collect()
     });
 }
 
 #[cfg(feature = "place-bets")]
-fn place_bet(event: &Event, outcomes: &[MarkedOutcome]) {
+fn place_bet(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
+    debug_assert_eq!(pairs.len(), stakes.len());
+
     struct Guard(&'static Bookie, bool);
 
     impl Drop for Guard {
@@ -428,16 +444,15 @@ fn place_bet(event: &Event, outcomes: &[MarkedOutcome]) {
         }
     }
 
-    for marked in outcomes {
-        let bookie = event[marked.market].0;
-        let offer = event[marked.market].1.clone();
-        let outcome = marked.outcome.clone();
-        let bet_size = marked.rate * *BET_SIZE;
+    for ((marked_offer, marked_outcome), stake) in pairs.iter().zip(stakes.iter()) {
+        let bookie = marked_offer.0;
+        let offer = marked_offer.1.clone();
+        let outcome = marked_outcome.outcome.clone();
 
         thread::spawn(move || {
             let mut guard = Guard(bookie, false);
 
-            if let Err(error) = bookie.gambler.place_bet(offer, outcome, bet_size) {
+            if let Err(error) = bookie.gambler.place_bet(offer, outcome, stake) {
                 error!(target: bookie.module, "While placing bet: {}", error);
                 return;
             }
@@ -448,9 +463,11 @@ fn place_bet(event: &Event, outcomes: &[MarkedOutcome]) {
             }
 
             guard.1 = true;
+
+            combo::mark_as_placed(&bookie.host, offer.inner_id);
         });
     }
 }
 
 #[cfg(not(feature = "place-bets"))]
-fn place_bet(_: &Event, _: &[MarkedOutcome]) {}
+fn place_bet(_: &[(&MarkedOffer, &MarkedOutcome)], _: &[Currency]) {}
