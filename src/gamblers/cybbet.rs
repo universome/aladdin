@@ -37,7 +37,7 @@ impl Gambler for CybBet {
             ("LoginForm[username]", username),
             ("LoginForm[password]", password),
             ("signin_submit", "Sign In")
-        ]).map(|_| ())
+        ], &[]).map(|_| ())
     }
 
     fn check_balance(&self) -> Result<Currency> {
@@ -68,7 +68,7 @@ impl Gambler for CybBet {
 
             let response = try!(self.session.post_form("/games/getCurrentKoef", &[
                 ("request", &try!(json::to_string(&request)))
-            ]));
+            ], &[]));
 
             let koef = try!(json::from_reader::<_, CurrentKoef>(response));
 
@@ -123,7 +123,7 @@ impl Gambler for CybBet {
 
                     let mut response = try!(self.session.post_form("/games/addNewGame", &[
                         ("idGame", &id.to_string())
-                    ]));
+                    ], &[]));
 
                     // Fix invalid markup to parse this bullshit below.
                     let mut template = String::from("<table>");
@@ -173,7 +173,7 @@ impl Gambler for CybBet {
             coef = outcome.1,
             stake = stake);
 
-        let mut response = try!(self.session.post_form("/games/bet", &[("bets", &bets)]));
+        let mut response = try!(self.session.post_form("/games/bet", &[("bets", &bets)], &[]));
 
         let mut string = String::new();
         try!(response.read_to_string(&mut string));

@@ -1,8 +1,11 @@
 use std::cmp;
+use std::sync::Mutex;
 use std::collections::{BinaryHeap, HashMap};
+use kuchiki::NodeRef;
+use serde_json as json;
 use time;
 
-use base::error::Result;
+use base::error::{Result, Error};
 use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
@@ -12,13 +15,15 @@ use events::{Offer, Outcome, DRAW, Kind};
 use events::kinds::*;
 
 pub struct EGB {
-    session: Session
+    session: Session,
+    csrf: Mutex<String>
 }
 
 impl EGB {
     pub fn new() -> EGB {
         EGB {
-            session: Session::new("egamingbets.com")
+            session: Session::new("egamingbets.com"),
+            csrf: Mutex::new(String::new())
         }
     }
 }
@@ -26,19 +31,25 @@ impl EGB {
 impl Gambler for EGB {
     fn authorize(&self, username: &str, password: &str) -> Result<()> {
         let html = try!(self.session.get_html("/"));
+        let csrf = try!(extract_csrf(html));
 
-        let csrf_elem = try!(html.query(r#"meta[name="csrf-token"]"#));
-        let csrf = try!(csrf_elem.get_attr("content"));
+        try!(self.session.post_form("/egb_users/sign_in", &[
+            ("utf8", "✓"),
+            ("authenticity_token", &csrf),
+            ("egb_user[name]", username),
+            ("egb_user[password]", password),
+            ("egb_user[remember_me]", "1")
+        ], &[
+            ("X-CSRF-Token", &csrf)
+        ]));
 
-        self.session
-            .post_form("/egb_users/sign_in", &[
-                ("utf8", "✓"),
-                ("authenticity_token", &csrf),
-                ("egb_user[name]", username),
-                ("egb_user[password]", password),
-                ("egb_user[remember_me]", "1")
-            ])
-            .map(|_| ())
+        let html = try!(self.session.get_html("/tables"));
+        let csrf = try!(extract_csrf(html));
+
+        let mut guard = self.csrf.lock().unwrap();
+        *guard = csrf;
+
+        Ok(())
     }
 
     fn check_balance(&self) -> Result<Currency> {
@@ -134,12 +145,45 @@ impl Gambler for EGB {
     }
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Result<()> {
-        unimplemented!();
+        let bet: f64 = bet.into();
+        let idx = 1 + offer.outcomes.iter().position(|o| o == &outcome).unwrap();
+
+        let csrf = self.csrf.lock().unwrap();
+
+        let response = try!(self.session.post_form("/bets", &[
+            ("bet[id]", &offer.inner_id.to_string()),
+            ("bet[amount]", &bet.to_string()),
+            ("bet[playmoney]", "false"),
+            ("bet[coef]", &outcome.1.to_string()),
+            ("bet[on]", &idx.to_string()),
+            ("bet[type]", "main")
+        ], &[
+            ("X-CSRF-Token", &*csrf)
+        ]));
+
+        let response = try!(json::from_reader::<_, PlaceBetResponse>(response));
+
+        if response.success {
+            Ok(())
+        } else {
+            Err(Error::from(response.message))
+        }
     }
+}
+
+fn extract_csrf(html: NodeRef) -> Result<String> {
+    let csrf_elem = try!(html.query(r#"meta[name="csrf-token"]"#));
+    csrf_elem.get_attr("content")
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct TimeMarker(i32, u32);
+
+#[derive(Deserialize)]
+struct PlaceBetResponse {
+    message: String,
+    success: bool
+}
 
 #[derive(Deserialize)]
 struct Balance {
