@@ -23,6 +23,12 @@ pub struct BetWay {
     session: Session
 }
 
+lazy_static! {
+    static ref IP_ADDRESS_RE: Regex = Regex::new(r#"config\["ip"] = "([\d|.]+)";"#).unwrap();
+    static ref SERVER_ID_RE: Regex = Regex::new(r#"config\["serverId"] = (\d+);"#).unwrap();
+    static ref CLIENT_TYPE_RE: Regex = Regex::new(r#"clientType : (\d+),"#).unwrap();
+}
+
 impl BetWay {
     pub fn new() -> BetWay {
         BetWay {
@@ -286,25 +292,19 @@ struct OutcomeUpdate {
 struct UnsupportedUpdate(String);
 
 fn extract_ip_address(html_page: &String) -> Option<String> {
-    let re = Regex::new(r#"config\["ip"] = "([\d|.]+)";"#).unwrap();
-
-    re.captures(html_page)
+    IP_ADDRESS_RE.captures(html_page)
         .and_then(|caps| caps.at(1))
             .and_then(|cap| Some(cap.to_string()))
 }
 
 fn extract_server_id(html_page: &String) -> Option<u32> {
-    let re = Regex::new(r#"config\["serverId"] = (\d+);"#).unwrap();
-
-    re.captures(html_page)
+    SERVER_ID_RE.captures(html_page)
         .and_then(|caps| caps.at(1))
             .and_then(|cap| (cap.parse::<u32>()).ok())
 }
 
 fn extract_client_type(html_page: &String) -> Option<u32> {
-    let re = Regex::new(r#"clientType : (\d+),"#).unwrap();
-
-    re.captures(html_page)
+    CLIENT_TYPE_RE.captures(html_page)
         .and_then(|caps| caps.at(1))
             .and_then(|cap| (cap.parse::<u32>()).ok())
 }
