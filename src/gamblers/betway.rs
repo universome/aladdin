@@ -267,7 +267,7 @@ impl Deserialize for Update {
 struct EventUpdate {
     eventId: u32,
     live: bool,
-    active: bool,
+    active: Option<bool>,
     // started: bool
 }
 
@@ -275,7 +275,7 @@ struct EventUpdate {
 struct MarketUpdate {
     eventId: u32,
     marketId: u32,
-    active: bool
+    active: Option<bool>
 }
 
 #[derive(Deserialize, Debug)]
@@ -426,7 +426,7 @@ fn apply_update(event: &mut Event, update: &Update) -> bool {
 }
 
 fn apply_event_update(event: &mut Event, event_update: &EventUpdate) -> bool {
-    event.active = event_update.active;
+    event.active = event_update.active.unwrap_or(event.active);
     event.live = event_update.live;
 
     true
@@ -438,7 +438,7 @@ fn apply_market_update(event: &mut Event, market_update: &MarketUpdate) -> bool 
         None => return false
     };
 
-    market.active = market_update.active;
+    market.active = market_update.active.unwrap_or(market.active);
 
     true
 }
