@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use std::result::Result as SessiontdResult;
+use std::result::Result as StdResult;
 use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Deserializer};
 use serde_json as json;
@@ -28,7 +28,7 @@ define_encode_set! {
 impl VitalBet {
     pub fn new() -> VitalBet {
         VitalBet {
-            session: Session::new("https://vitalbet.com")
+            session: Session::new("vitalbet.com")
         }
     }
 
@@ -210,7 +210,7 @@ enum PollingMessage {
 }
 
 impl Deserialize for PollingMessage {
-    fn deserialize<D>(d: &mut D) -> SessiontdResult<PM, D::Error> where D: Deserializer {
+    fn deserialize<D>(d: &mut D) -> StdResult<PM, D::Error> where D: Deserializer {
         let result: json::Value = try!(Deserialize::deserialize(d));
 
         if result.find("M").map_or(false, json::Value::is_string) {
@@ -292,14 +292,17 @@ fn convert_prematch_match_update(update: PrematchMatchUpdate) -> Match {
 fn convert_match_into_offer(match_: &Match) -> Result<Option<Offer>> {
     let kind = get_kind_from_match(&match_);
 
-    // Currently, we are interested only in a single market type
     match match_.PreviewMarket {
         Some(Market { ref Name }) => {
+            // Currently, we are interested only in a special market types
             if Name != "Match Odds" && Name != "Match Odds (3 Way)" && Name != "Series Winner" {
                 return Ok(None);
             }
         },
-        None => unreachable!()
+        None => {
+            warn!("We have a match without PreviewMarket: {:?}", match_);
+            return Ok(None);
+        }
     }
 
     if match_.IsSuspended || !match_.IsActive.unwrap_or(true) || kind.is_none() {
