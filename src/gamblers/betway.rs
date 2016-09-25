@@ -16,7 +16,7 @@ use base::currency::Currency;
 use base::websocket::Connection as Connection;
 use gamblers::Gambler;
 use events::{Offer, DRAW, Kind};
-use events::Outcome as AladdinOutcome;
+use events::Outcome as Outcome;
 use events::kinds::*;
 
 pub struct BetWay {
@@ -30,12 +30,11 @@ impl BetWay {
         }
     }
 
-    // TODO(universome): make this function generic over type?
     fn get_esports_events_ids(&self) -> Result<Vec<u32>> {
         // First we should get list of leagues
         let main_page = try!(self.session.get_html("/"));
         let events_types = try!(extract_events_types(main_page));
-        let path = format!("/?u=/types/{}", events_types.join("+").to_owned());
+        let path = format!("/?u=/types/{}", events_types.join("+"));
         let response = try!(self.session.get_html(path.as_ref()));
         
         extract_events_ids(response)
@@ -145,7 +144,7 @@ impl Gambler for BetWay {
         }
     }
 
-    fn place_bet(&self, offer: Offer, outcome: AladdinOutcome, bet: Currency) -> Result<()> {
+    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Result<()> {
         unimplemented!();
     }
 }
@@ -202,7 +201,7 @@ struct Event {
 #[derive(Deserialize, Debug)]
 struct Market {
     marketId: u32,
-    outcomes: Vec<Outcome>,
+    outcomes: Vec<BetwayOutcome>,
     active: bool,
     cname: String,
     typeCname: String
@@ -210,7 +209,7 @@ struct Market {
 
 // TODO(universome): what are priceNum and priceDen?
 #[derive(Deserialize, Debug)]
-struct Outcome {
+struct BetwayOutcome {
     outcomeId: u32,
     priceDec: Option<f64>,
     name: String,
@@ -251,7 +250,7 @@ impl Deserialize for Update {
         let update_type = result.find("type").unwrap().as_str().unwrap_or("No update type").to_string();
 
         Ok(match update_type.as_ref() {
-            "match" => Update::EventUpdate( json::from_value(result).unwrap() ),
+            "event" => Update::EventUpdate( json::from_value(result).unwrap() ),
             "market" => Update::MarketUpdate( json::from_value(result).unwrap() ),
             "outcome" => Update::OutcomeUpdate( json::from_value(result).unwrap() ),
             other_type => Update::UnsupportedUpdate( UnsupportedUpdate(other_type.to_string()))
@@ -290,24 +289,24 @@ fn extract_ip_address(html_page: &String) -> Option<String> {
     let re = Regex::new(r#"config\["ip"] = "([\d|.]+)";"#).unwrap();
 
     re.captures(html_page)
-        .and_then(|caps| caps.at(1)
-            .and_then(|cap| Some(cap.to_string())))
+        .and_then(|caps| caps.at(1))
+            .and_then(|cap| Some(cap.to_string()))
 }
 
 fn extract_server_id(html_page: &String) -> Option<u32> {
     let re = Regex::new(r#"config\["serverId"] = (\d+);"#).unwrap();
 
     re.captures(html_page)
-        .and_then(|caps| caps.at(1)
-            .and_then(|cap| (cap.parse::<u32>()).ok()))
+        .and_then(|caps| caps.at(1))
+            .and_then(|cap| (cap.parse::<u32>()).ok())
 }
 
 fn extract_client_type(html_page: &String) -> Option<u32> {
     let re = Regex::new(r#"clientType : (\d+),"#).unwrap();
 
     re.captures(html_page)
-        .and_then(|caps| caps.at(1)
-            .and_then(|cap| (cap.parse::<u32>()).ok() ))
+        .and_then(|caps| caps.at(1))
+            .and_then(|cap| (cap.parse::<u32>()).ok())
 }
 
 // We do not return u32 (although we should), because we will have to convert String > u32 > String
@@ -381,7 +380,7 @@ fn get_kind_from_event(event: &Event) -> Option<Kind> {
                 "starcraft-2" => Kind::StarCraft2(StarCraft2::Series),
                 "world-of-tanks" => Kind::WorldOfTanks(WorldOfTanks::Series),
                 kind => {
-                    warn!("New category on betway.com: {:?}", kind);
+                    warn!("Found new category: {:?}", kind);
 
                     return None;
                 }
@@ -392,7 +391,7 @@ fn get_kind_from_event(event: &Event) -> Option<Kind> {
     None
 }
 
-fn get_outcomes_from_event(event: &Event) -> Option<Vec<AladdinOutcome>> {
+fn get_outcomes_from_event(event: &Event) -> Option<Vec<Outcome>> {
     let market = event.markets.iter()
         .find(|market| market.typeCname == "win-draw-win" || market.typeCname == "to-win");
 
@@ -411,14 +410,10 @@ fn get_outcomes_from_event(event: &Event) -> Option<Vec<AladdinOutcome>> {
 
     Some(market.unwrap().outcomes.iter().map(|outcome| {
         // Converting "[NaVi]" into "NaVi".
-        let title: String = outcome.name.chars()
-            .skip(1)
-            .take(outcome.name.len() - 2)
-            .collect();
-
+        let title = outcome.name.trim_left_matches("[").trim_right_matches("]").to_string();
         let title = if title == "Draw" { DRAW.to_owned() } else { title };
 
-        AladdinOutcome(title, outcome.priceDec.unwrap())
+        Outcome(title, outcome.priceDec.unwrap())
     }).collect())
 }
 
