@@ -181,6 +181,8 @@ fn run_gambler(bookie: &'static Bookie,
         info!(target: module, "Watching for offers...");
         bookie.activate();
 
+        delay = retry_delay;
+
         if let Err(error) = bookie.gambler.watch(&|offer, update| {
             // If errors occured at the time of betting.
             if !bookie.active() {
