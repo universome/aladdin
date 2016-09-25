@@ -44,8 +44,8 @@ impl Connection {
                     continue;
                 },
                 Type::Ping => {
-                    try!(self.0.send_message(&Message::pong(message.payload)));
                     debug!("Received ping. Sending pong.");
+                    try!(self.0.send_message(&Message::pong(message.payload)));
                     continue;
                 },
                 _ => {
