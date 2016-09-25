@@ -10,7 +10,7 @@ HOST=46.101.244.208
 DIR=\~
 MAIN=aladdin
 LOG=aladdin.log
-ENV="RUST_LOG=aladdin=info TZ='Europe/Moscow'"
+ENV="RUST_LOG=${RUST_LOG:=aladdin=info} TZ='Europe/Moscow'"
 
 if [ $MODE == release ]; then
     FLAGS="--release $FLAGS"
