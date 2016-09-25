@@ -42,7 +42,7 @@ impl BetWay {
         let events_types = try!(extract_events_types(main_page));
         let path = format!("/?u=/types/{}", events_types.join("+"));
         let response = try!(self.session.get_html(path.as_ref()));
-        
+
         extract_events_ids(response)
     }
 
@@ -54,7 +54,7 @@ impl BetWay {
         };
 
         let response = try!(self.session.post_json(path, request_data));
-        
+
         Ok(try!(json::from_reader(response)))
     }
 }
@@ -309,7 +309,7 @@ fn extract_client_type(html_page: &String) -> Option<u32> {
 }
 
 // We do not return u32 (although we should), because we will have to convert String > u32 > String
-fn extract_events_types(page: NodeRef) -> Result<Vec<String>> {    
+fn extract_events_types(page: NodeRef) -> Result<Vec<String>> {
     let events_types = try!(page.query_all(".cb-esports"))
         .filter_map(|event_type_node| event_type_node.get_attr("id").ok())
         .collect();

@@ -18,7 +18,7 @@ impl Connection {
         let url = try!(Url::parse(format!("wss://{}", location).as_ref()));
         let request = try!(Client::connect(url));
         let response = try!(request.send());
-        
+
         try!(response.validate()); // Ensure the response is valid.
 
         Ok(Connection(response.begin()))
