@@ -10,6 +10,8 @@ use hyper::Error as HyperError;
 use time::ParseError as TimeParseError;
 use serde_json::Error as JsonError;
 use hyper::status::StatusCode;
+use url::ParseError as UrlParseError;
+use websocket::result::WebSocketError;
 
 use self::Error::*;
 
@@ -82,4 +84,6 @@ impl_boxed!(Unexpected, ParseIntError);
 impl_boxed!(Unexpected, ParseFloatError);
 impl_boxed!(Unexpected, ParseBoolError);
 impl_boxed!(Unexpected, TimeParseError);
+impl_boxed!(Unexpected, UrlParseError);
+impl_boxed!(Unexpected, WebSocketError);
 impl_boxed!(Unexpected, String);

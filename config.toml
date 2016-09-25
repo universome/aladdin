@@ -31,3 +31,14 @@ password = "aladdin.rs"
 host = "cybbet.com"
 username = "aladdin"
 password = "Shmaladdin42"
+
+[[bookies]]
+host = "unikrn.com"
+username = "shmaladdin.rs@gmail.com"
+password = "aladdin571"
+enabled = false
+
+[[bookies]]
+host = "betway.com"
+username = "shmaladdin"
+password = "aladdin"

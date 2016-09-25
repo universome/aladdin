@@ -19,12 +19,12 @@ const USER_AGENT: &str = concat!("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5
                                  "Chrome/52.0.2743.116 Safari/537.36");
 pub struct Session {
     client: Client,
-    base_url: String,
+    host: String,
     cookie: Mutex<Cookie>
 }
 
 impl Session {
-    pub fn new(base_url: &str) -> Session {
+    pub fn new(host: &str) -> Session {
         let mut client = Client::new();
         client.set_read_timeout(Some(Duration::from_secs(25)));
         client.set_write_timeout(Some(Duration::from_secs(25)));
@@ -32,7 +32,7 @@ impl Session {
 
         Session {
             client: client,
-            base_url: base_url.to_string(),
+            host: host.to_string(),
             cookie: Mutex::new(Cookie(vec![]))
         }
     }
@@ -63,6 +63,18 @@ impl Session {
 
         let response = try!(self.get(path, headers));
         Ok(try!(kuchiki::parse_html().from_http(response)))
+    }
+
+    pub fn get_raw_html(&self, path: &str) -> Result<String> {
+        let mut headers = Headers::new();
+        headers.set(Accept(vec![qitem(mime!(Text/Html))]));
+
+        let mut response = try!(self.get(path, headers));
+        let mut string = String::new();
+
+        try!(response.read_to_string(&mut string));
+
+        Ok(string)
     }
 
     pub fn get_json<T: Deserialize>(&self, path: &str) -> Result<T> {
@@ -110,9 +122,18 @@ impl Session {
         self.post(path, &encoded_body, headers)
     }
 
+    pub fn get_cookie(&self, cookie_name: &str) -> Option<String> {
+        for cookie in self.cookie.lock().unwrap().iter() {
+            if cookie.name == cookie_name {
+                return Some(cookie.value.clone());
+            }
+        }
+
+        None
+    }
+
     fn request(&self, path: &str, body: Option<&str>, mut headers: Headers) -> Result<Response> {
-        let mut url = self.base_url.clone();
-        url.push_str(path);
+        let url = format!("https://{}{}", self.host, path);
 
         debug!("{} {}", if body.is_some() { "POST" } else { "GET" }, url);
 
