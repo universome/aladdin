@@ -17,13 +17,13 @@ if [ $MODE == release ]; then
 fi
 
 function remote {
-    ssh "$USER@$HOST" "$1"
+    ssh -t "$USER@$HOST" "$1"
 }
 
 STATUS_CMD="start-stop-daemon --status --chdir $DIR --exec $MAIN"
 START_CMD="$ENV start-stop-daemon --start --oknodo --no-close --background --chdir $DIR --exec $MAIN > $LOG 2>&1"
 STOP_CMD="start-stop-daemon --stop --oknodo --retry 10 --chdir $DIR --exec $MAIN"
-LOG_CMD="cat $LOG"
+LOG_CMD="less -R +F $LOG"
 
 case "$1" in
     deploy)
@@ -41,7 +41,7 @@ case "$1" in
         esac
         ;;
 
-    log) remote "$LOG_CMD" | less -S +F ;;
+    log) remote "$LOG_CMD" ;;
     start) remote "$START_CMD" ;;
     stop) remote "$STOP_CMD" ;;
     restart) remote "$STOP_CMD && $START_CMD" ;;
