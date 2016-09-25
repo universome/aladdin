@@ -457,14 +457,14 @@ fn place_bet(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
                 return;
             }
 
+            combo::mark_as_placed(&bookie.host, offer.inner_id);
+
             if let Err(error) = bookie.gambler.check_balance().map(|b| bookie.set_balance(b)) {
                 error!(target: bookie.module, "While checking balance: {}", error);
                 return;
             }
 
             guard.1 = true;
-
-            combo::mark_as_placed(&bookie.host, offer.inner_id);
         });
     }
 }
