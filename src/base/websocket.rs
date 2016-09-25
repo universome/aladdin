@@ -1,4 +1,5 @@
 use std::fmt::{Debug};
+use std::str;
 use serde_json as json;
 use serde::{Serialize, Deserialize};
 use websocket::message::{Message, Type};
@@ -41,21 +42,23 @@ impl Connection {
                 Type::Close => {
                     debug!("Received close message. Sending close message.");
                     try!(self.0.send_message(&Message::close()));
-                    continue;
                 },
                 Type::Ping => {
                     debug!("Received ping. Sending pong.");
                     try!(self.0.send_message(&Message::pong(message.payload)));
-                    continue;
                 },
-                _ => {
+                Type::Text => {
+                    debug!("Received text message: {:?}", str::from_utf8(&*message.payload));
+
                     match json::from_reader::<&[u8], T>(&*message.payload) {
                         Ok(m) => return Ok(m),
                         Err(err) => {
                             warn!("Error while parsing websocket message: {}", err);
-                            continue;
                         }
                     }
+                },
+                another_type => {
+                    debug!("Received not interesting message type: {:?}", another_type);
                 }
             }
         }
