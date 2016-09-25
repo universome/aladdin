@@ -137,15 +137,15 @@ impl Gambler for BetWay {
                 Update::OutcomeUpdate(ref u) => events.get_mut(&u.eventId),
                 _ => None
             } {
-                apply_update(&mut event, &update);
+                if !apply_update(&mut event, &update) {
+                    warn!("We've somehow received an update for unknown event: {:?}", update);
+                }
 
                 if let Some(offer) = try!(create_offer_from_event(&event)) {
                     cb(offer, true);
                 } else {
                     cb(try!(create_dummy_offer_from_event(&event)), false);
                 }
-            } else {
-                warn!("We've somehow received an update for unknown event: {:?}", update);
             }
         }
     }
