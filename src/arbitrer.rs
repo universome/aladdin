@@ -51,6 +51,10 @@ impl Bookie {
     fn set_balance(&self, balance: Currency) {
         self.balance.store(balance.0 as isize, Relaxed);
     }
+
+    fn hold_balance(&self, chunk: Currency) {
+        self.balance.fetch_sub(chunk.0 as isize, Relaxed);
+    }
 }
 
 #[derive(Clone)]
@@ -448,6 +452,8 @@ fn place_bet(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
         let bookie = marked_offer.0;
         let offer = marked_offer.1.clone();
         let outcome = marked_outcome.outcome.clone();
+
+        bookie.hold_balance(stake);
 
         thread::spawn(move || {
             let mut guard = Guard(bookie, false);
