@@ -118,6 +118,7 @@ impl Session {
 
         headers.set(ContentType(mime!(Application/Json)));
         headers.set(Accept(vec![qitem(mime!(Application/Json))]));
+        headers.set(XRequestedWith("XMLHttpRequest".to_owned()));
 
         self.post(path, &encoded_body, headers)
     }
