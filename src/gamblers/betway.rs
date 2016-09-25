@@ -97,7 +97,7 @@ impl Gambler for BetWay {
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
         let mut timer = Periodic::new(3600);
         let mut events = HashMap::new();
-        let mut connection = try!(Connection::new("wss://sports.betway.com/emoapi/push"));
+        let mut connection = try!(Connection::new("sports.betway.com/emoapi/push"));
         let mut is_inited = false;
         let session = self.session.get_cookie("SESSION").unwrap();
 
@@ -213,7 +213,6 @@ struct Market {
     typeCname: String
 }
 
-// TODO(universome): what are priceNum and priceDen?
 #[derive(Deserialize, Debug)]
 struct BetwayOutcome {
     outcomeId: u32,

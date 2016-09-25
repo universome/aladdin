@@ -14,8 +14,8 @@ use base::error::{Result, Error};
 pub struct Connection(Client<DataFrame, Sender<WebSocketStream>, Receiver<WebSocketStream>>);
 
 impl Connection {
-    pub fn new(url: &str) -> Result<Connection> {
-        let url = try!(Url::parse(url));
+    pub fn new(location: &str) -> Result<Connection> {
+        let url = try!(Url::parse(format!("wss://{}", location).as_ref()));
         let request = try!(Client::connect(url));
         let response = try!(request.send());
         
