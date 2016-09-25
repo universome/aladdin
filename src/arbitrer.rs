@@ -448,7 +448,7 @@ fn place_bet(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
         }
     }
 
-    for ((marked_offer, marked_outcome), stake) in pairs.iter().zip(stakes.iter()) {
+    for (&(marked_offer, marked_outcome), &stake) in pairs.iter().zip(stakes.iter()) {
         let bookie = marked_offer.0;
         let offer = marked_offer.1.clone();
         let outcome = marked_outcome.outcome.clone();
@@ -457,13 +457,14 @@ fn place_bet(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
 
         thread::spawn(move || {
             let mut guard = Guard(bookie, false);
+            let inner_id = offer.inner_id;
 
             if let Err(error) = bookie.gambler.place_bet(offer, outcome, stake) {
                 error!(target: bookie.module, "While placing bet: {}", error);
                 return;
             }
 
-            combo::mark_as_placed(&bookie.host, offer.inner_id);
+            combo::mark_as_placed(&bookie.host, inner_id);
 
             if let Err(error) = bookie.gambler.check_balance().map(|b| bookie.set_balance(b)) {
                 error!(target: bookie.module, "While checking balance: {}", error);
