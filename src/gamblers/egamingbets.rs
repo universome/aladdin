@@ -1,5 +1,7 @@
 use std::cmp;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering::Relaxed;
 use std::collections::{BinaryHeap, HashMap};
 use kuchiki::NodeRef;
 use serde_json as json;
@@ -16,14 +18,18 @@ use events::kinds::*;
 
 pub struct EGB {
     session: Session,
-    csrf: Mutex<String>
+    csrf: Mutex<String>,
+    user_time: AtomicUsize,
+    update_time: AtomicUsize
 }
 
 impl EGB {
     pub fn new() -> EGB {
         EGB {
             session: Session::new("egamingbets.com"),
-            csrf: Mutex::new(String::new())
+            csrf: Mutex::new(String::new()),
+            user_time: AtomicUsize::new(0),
+            update_time: AtomicUsize::new(0)
         }
     }
 }
@@ -80,6 +86,9 @@ impl Gambler for EGB {
             }
         }
 
+        self.user_time.store(user_time as usize, Relaxed);
+        self.update_time.store(update_time as usize, Relaxed);
+
         let period = 5;
 
         for _ in Periodic::new(period) {
@@ -120,6 +129,9 @@ impl Gambler for EGB {
                     map.insert(id, offer);
                 }
             }
+
+            self.user_time.store(user_time as usize, Relaxed);
+            self.update_time.store(update_time as usize, Relaxed);
 
             // Remove old offers.
             let threshold = time::get_time().sec as u32 + period as u32;
@@ -168,6 +180,33 @@ impl Gambler for EGB {
         } else {
             Err(Error::from(response.message))
         }
+    }
+
+    fn check_offer(&self, offer: &Offer) -> Result<bool> {
+        let user_time = self.user_time.load(Relaxed);
+        let update_time = self.update_time.load(Relaxed);
+
+        let path = format!("/bets?st={}&ut={}&fg=0&f=", user_time, update_time);
+        let table = try!(self.session.get_json::<Table>(&path));
+
+        if table.bets.is_none() {
+            return Ok(true);
+        }
+
+        for bet in table.bets.unwrap() {
+            if bet.id != offer.inner_id as u32 {
+                continue;
+            }
+
+            let actual = match try!(bet.into()) {
+                Some(offer) => offer,
+                None => return Ok(false)
+            };
+
+            return Ok(&actual == offer && actual.outcomes == offer.outcomes);
+        }
+
+        return Ok(true);
     }
 }
 
