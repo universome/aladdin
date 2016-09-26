@@ -66,6 +66,9 @@ impl Gambler for EGB {
     }
 
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+        #[derive(PartialEq, Eq, PartialOrd, Ord)]
+        struct TimeMarker(i32, u32);
+
         let mut map = HashMap::new();
         let mut heap = BinaryHeap::new();
 
@@ -78,7 +81,7 @@ impl Gambler for EGB {
                 let id = bet.id;
                 update_time = cmp::max(update_time, bet.ut);
 
-                if let Some(offer) = try!(bet.into()) {
+                if let Some(offer) = try!(extract_offer(bet)) {
                     map.insert(id, offer.clone());
                     heap.push(TimeMarker(-(offer.date as i32), id));
                     cb(offer, true);
@@ -102,7 +105,7 @@ impl Gambler for EGB {
                     let id = bet.id;
                     update_time = cmp::max(update_time, bet.ut);
 
-                    let offer = match try!(bet.into()) {
+                    let offer = match try!(extract_offer(bet)) {
                         Some(offer) => offer,
                         None => continue
                     };
@@ -198,7 +201,7 @@ impl Gambler for EGB {
                 continue;
             }
 
-            let actual = match try!(bet.into()) {
+            let actual = match try!(extract_offer(bet)) {
                 Some(offer) => offer,
                 None => return Ok(false)
             };
@@ -214,9 +217,6 @@ fn extract_csrf(html: NodeRef) -> Result<String> {
     let csrf_elem = try!(html.query(r#"meta[name="csrf-token"]"#));
     csrf_elem.get_attr("content")
 }
-
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
-struct TimeMarker(i32, u32);
 
 #[derive(Deserialize)]
 struct PlaceBetResponse {
@@ -255,52 +255,50 @@ struct Gamer {
     nick: String
 }
 
-impl Into<Result<Option<Offer>>> for Bet {
-    fn into(self) -> Result<Option<Offer>> {
-        let irrelevant = self.winner > 0                            // Ended or cancelled.
-                      || self.live == 1                             // Exactly live.
-                      || time::get_time().sec as u32 >= self.date   // Started.
-                      || self.gamer_1.nick.contains("(Live)")       // Live.
-                      || self.gamer_2.nick.contains("(Live)");
+fn extract_offer(bet: Bet) -> Result<Option<Offer>> {
+    let irrelevant = bet.winner > 0                            // Ended or cancelled.
+                  || bet.live == 1                             // Exactly live.
+                  || time::get_time().sec as u32 >= bet.date   // Started.
+                  || bet.gamer_1.nick.contains("(Live)")       // Live.
+                  || bet.gamer_2.nick.contains("(Live)");
 
-        if irrelevant {
+    if irrelevant {
+        return Ok(None);
+    }
+
+    let kind = match bet.game.as_ref() {
+        "Counter-Strike" => Kind::CounterStrike(CounterStrike::Series),
+        "Dota2" => Kind::Dota2(Dota2::Series),
+        "Hearthstone" => Kind::Hearthstone(Hearthstone::Series),
+        "HeroesOfTheStorm" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
+        "LoL" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
+        "Overwatch" => Kind::Overwatch(Overwatch::Series),
+        "Smite" => Kind::Smite(Smite::Series),
+        "StarCraft2" => Kind::StarCraft2(StarCraft2::Series),
+        "WorldOfTanks" => Kind::WorldOfTanks(WorldOfTanks::Series),
+        kind => {
+            warn!("Unknown kind: {}", kind);
             return Ok(None);
         }
+    };
 
-        let kind = match self.game.as_ref() {
-            "Counter-Strike" => Kind::CounterStrike(CounterStrike::Series),
-            "Dota2" => Kind::Dota2(Dota2::Series),
-            "Hearthstone" => Kind::Hearthstone(Hearthstone::Series),
-            "HeroesOfTheStorm" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
-            "LoL" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
-            "Overwatch" => Kind::Overwatch(Overwatch::Series),
-            "Smite" => Kind::Smite(Smite::Series),
-            "StarCraft2" => Kind::StarCraft2(StarCraft2::Series),
-            "WorldOfTanks" => Kind::WorldOfTanks(WorldOfTanks::Series),
-            kind => {
-                warn!("Unknown kind: {}", kind);
-                return Ok(None);
-            }
-        };
+    let coef_1 = try!(bet.coef_1.parse());
+    let coef_2 = try!(bet.coef_2.parse());
+    let coef_draw = if bet.coef_draw == "" { 0. } else { try!(bet.coef_draw.parse()) };
 
-        let coef_1 = try!(self.coef_1.parse());
-        let coef_2 = try!(self.coef_2.parse());
-        let coef_draw = if self.coef_draw == "" { 0. } else { try!(self.coef_draw.parse()) };
+    let mut outcomes = vec![
+        Outcome(bet.gamer_1.nick, coef_1),
+        Outcome(bet.gamer_2.nick, coef_2)
+    ];
 
-        let mut outcomes = vec![
-            Outcome(self.gamer_1.nick, coef_1),
-            Outcome(self.gamer_2.nick, coef_2)
-        ];
-
-        if coef_draw > 0. {
-            outcomes.push(Outcome(DRAW.to_owned(), coef_draw));
-        }
-
-        Ok(Some(Offer {
-            date: self.date,
-            kind: kind,
-            outcomes: outcomes,
-            inner_id: self.id as u64
-        }))
+    if coef_draw > 0. {
+        outcomes.push(Outcome(DRAW.to_owned(), coef_draw));
     }
+
+    Ok(Some(Offer {
+        date: bet.date,
+        kind: kind,
+        outcomes: outcomes,
+        inner_id: bet.id as u64
+    }))
 }
