@@ -144,15 +144,15 @@ impl Gambler for EGB {
         Ok(())
     }
 
-    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Result<()> {
-        let bet: f64 = bet.into();
+    fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
+        let stake: f64 = stake.into();
         let idx = 1 + offer.outcomes.iter().position(|o| o == &outcome).unwrap();
 
         let csrf = self.csrf.lock().unwrap();
 
         let response = try!(self.session.post_form("/bets", &[
             ("bet[id]", &offer.inner_id.to_string()),
-            ("bet[amount]", &bet.to_string()),
+            ("bet[amount]", &stake.to_string()),
             ("bet[playmoney]", "false"),
             ("bet[coef]", &outcome.1.to_string()),
             ("bet[on]", &idx.to_string()),
