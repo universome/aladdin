@@ -10,6 +10,7 @@ use hyper::uri::RequestUri::AbsolutePath;
 use log::LogLevel;
 use time;
 
+use base::error::Result;
 use base::logger;
 use base::config::CONFIG;
 use base::currency::Currency;
@@ -27,26 +28,33 @@ pub fn run() {
     let mut server = Server::http(("0.0.0.0", *PORT)).unwrap();
 
     server.keep_alive(None);
-    server.handle_threads(handle, 2).unwrap();
+    server.set_read_timeout(Some(Duration::new(2, 0)));
+    server.set_write_timeout(Some(Duration::new(5, 0)));
+    server.handle_threads(handle, 1).unwrap();
 }
 
 fn handle(req: Request, res: Response) {
     debug!("{} {}", req.method, req.uri);
 
-    match req.uri {
+    let result = match req.uri {
         AbsolutePath(ref path) => match (&req.method, &path[..]) {
             (&Get, "/") => send_index(res),
             _ => send_404(res)
         },
         _ => send_404(res)
     };
+
+    if let Err(error) = result {
+        warn!("During response: {}", error);
+    }
 }
 
-fn send_404(mut res: Response) {
+fn send_404(mut res: Response) -> Result<()> {
     *res.status_mut() = NotFound;
+    Ok(())
 }
 
-fn send_index(res: Response) {
+fn send_index(res: Response) -> Result<()> {
     let now = Instant::now();
     let mut buffer = String::new();
 
@@ -69,7 +77,7 @@ fn send_index(res: Response) {
 
     render_footer(&mut buffer, now.elapsed());
 
-    res.send(buffer.as_bytes());
+    res.send(buffer.as_bytes()).map_err(From::from)
 }
 
 fn render_header(b: &mut String) {
