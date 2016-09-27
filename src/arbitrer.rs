@@ -352,8 +352,6 @@ fn realize_event(event: &Event) {
             None => return
         };
 
-        // Save combo synchronously to prevent race condition.
-        save_combo(&pairs, &stakes);
         place_bets(&pairs, &stakes);
     } else if max_profit > *MAX_PROFIT {
         warn!("Suspiciously high profit ({:+.1}%)", max_profit * 100.);
@@ -463,6 +461,23 @@ fn place_bets(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
             place_bet(bookie, offer, outcome, stake, count, cvar);
         });
     }
+
+    // TODO(loyd): temporary solution, it blocks system during offer checking to prevent race.
+    let mut count = barrier.0.lock().unwrap();
+    let start = Instant::now();
+
+    while *count > 0 {
+        let result = barrier.1.wait_timeout(count, *CHECK_TIMEOUT).unwrap();
+
+        if result.1.timed_out() || start.elapsed() >= *CHECK_TIMEOUT {
+            warn!("The time is up");
+            return;
+        }
+
+        count = result.0;
+    }
+
+    save_combo(&pairs, &stakes);
 }
 
 fn place_bet(bookie: &Bookie, offer: Offer, outcome: Outcome, stake: Currency,
@@ -492,9 +507,17 @@ fn place_bet(bookie: &Bookie, offer: Offer, outcome: Outcome, stake: Currency,
         done: false
     };
 
-    if let Err(error) = bookie.gambler.check_offer(&offer, &outcome, stake) {
-        error!(target: bookie.module, "While checking offer: {}", error);
-        return;
+    match bookie.gambler.check_offer(&offer, &outcome, stake) {
+        Ok(true) => {},
+        Ok(false) => {
+            warn!(target: bookie.module, "Offer {} is outdated", offer);
+            guard.done = true;
+            return;
+        },
+        Err(error) => {
+            error!(target: bookie.module, "While checking offer: {}", error);
+            return;
+        }
     }
 
     let mut count = count.lock().unwrap();
@@ -504,18 +527,19 @@ fn place_bet(bookie: &Bookie, offer: Offer, outcome: Outcome, stake: Currency,
         // Wait for the end of the check of other offers.
         while *count > 0 {
             let result = cvar.wait_timeout(count, *CHECK_TIMEOUT).unwrap();
+            count = result.0;
 
             // Either the time is up or some thread fails.
             if result.1.timed_out() {
                 guard.done = true;
                 return;
             }
-
-            count = result.0;
         }
     } else {
         cvar.notify_all();
     }
+
+    drop(count);
 
     let inner_id = offer.inner_id;
 
