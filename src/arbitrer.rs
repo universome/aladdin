@@ -1,11 +1,11 @@
 use std::thread;
 use std::cmp::Ordering;
-use std::time::Duration;
+use std::time::{Instant, Duration};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicIsize};
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::mpsc::{self, Sender, Receiver};
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, Mutex, RwLock, Condvar, RwLockReadGuard, RwLockWriteGuard};
 use time;
 
 use base::config::CONFIG;
@@ -52,8 +52,12 @@ impl Bookie {
         self.balance.store(balance.0 as isize, Relaxed);
     }
 
-    fn hold_balance(&self, chunk: Currency) {
-        self.balance.fetch_sub(chunk.0 as isize, Relaxed);
+    fn hold_stake(&self, stake: Currency) {
+        self.balance.fetch_sub(stake.0 as isize, Relaxed);
+    }
+
+    fn release_stake(&self, stake: Currency) {
+        self.balance.fetch_add(stake.0 as isize, Relaxed);
     }
 }
 
@@ -67,6 +71,8 @@ lazy_static! {
     static ref EVENTS: RwLock<Events> = RwLock::new(HashMap::new());
 
     // TODO(loyd): add getters to `config` module and refactor this.
+    static ref CHECK_TIMEOUT: Duration = CONFIG.lookup("arbitrer.check-timeount")
+        .map(|x| Duration::new(x.as_integer().unwrap() as u64, 0)).unwrap();
     static ref BASE_STAKE: Currency = CONFIG.lookup("arbitrer.base-stake")
         .unwrap().as_float().unwrap().into();
     static ref MAX_STAKE: Currency = CONFIG.lookup("arbitrer.max-stake")
@@ -348,7 +354,7 @@ fn realize_event(event: &Event) {
 
         // Save combo synchronously to prevent race condition.
         save_combo(&pairs, &stakes);
-        place_bet(&pairs, &stakes);
+        place_bets(&pairs, &stakes);
     } else if max_profit > *MAX_PROFIT {
         warn!("Suspiciously high profit ({:+.1}%)", max_profit * 100.);
     } else {
@@ -414,6 +420,10 @@ fn distribute_currency(pairs: &[(&MarkedOffer, &MarkedOutcome)]) -> Option<Vec<C
         stakes.push(stake);
     }
 
+    for (&(marked, _), &stake) in pairs.iter().zip(stakes.iter()) {
+        marked.0.hold_stake(stake);
+    }
+
     Some(stakes)
 }
 
@@ -436,47 +446,94 @@ fn save_combo(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
     });
 }
 
-#[cfg(feature = "place-bets")]
-fn place_bet(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
+fn place_bets(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
     debug_assert_eq!(pairs.len(), stakes.len());
 
-    struct Guard(&'static Bookie, bool);
-
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            if !self.1 {
-                regression(self.0);
-            }
-        }
-    }
+    // We cannot use `std::sync::Barrier` because it has small possibility for error handling.
+    let barrier = Arc::new((Mutex::new(pairs.len() as u32), Condvar::new()));
 
     for (&(marked_offer, marked_outcome), &stake) in pairs.iter().zip(stakes.iter()) {
         let bookie = marked_offer.0;
         let offer = marked_offer.1.clone();
         let outcome = marked_outcome.outcome.clone();
-
-        bookie.hold_balance(stake);
+        let barrier = barrier.clone();
 
         thread::spawn(move || {
-            let mut guard = Guard(bookie, false);
-            let inner_id = offer.inner_id;
-
-            if let Err(error) = bookie.gambler.place_bet(offer, outcome, stake) {
-                error!(target: bookie.module, "While placing bet: {}", error);
-                return;
-            }
-
-            combo::mark_as_placed(&bookie.host, inner_id);
-
-            if let Err(error) = bookie.gambler.check_balance().map(|b| bookie.set_balance(b)) {
-                error!(target: bookie.module, "While checking balance: {}", error);
-                return;
-            }
-
-            guard.1 = true;
+            let &(ref count, ref cvar) = &*barrier;
+            place_bet(bookie, offer, outcome, stake, count, cvar);
         });
     }
 }
 
-#[cfg(not(feature = "place-bets"))]
-fn place_bet(_: &[(&MarkedOffer, &MarkedOutcome)], _: &[Currency]) {}
+fn place_bet(bookie: &Bookie, offer: Offer, outcome: Outcome, stake: Currency,
+             count: &Mutex<u32>, cvar: &Condvar)
+{
+    struct Guard<'b> {
+        bookie: &'b Bookie,
+        hold: Option<Currency>,
+        done: bool
+    }
+
+    impl<'b> Drop for Guard<'b> {
+        fn drop(&mut self) {
+            if !self.done {
+                regression(self.bookie);
+            }
+
+            if let Some(stake) = self.hold {
+                self.bookie.release_stake(stake);
+            }
+        }
+    }
+
+    let mut guard = Guard {
+        bookie: bookie,
+        hold: Some(stake),
+        done: false
+    };
+
+    if let Err(error) = bookie.gambler.check_offer(&offer, &outcome, stake) {
+        error!(target: bookie.module, "While checking offer: {}", error);
+        return;
+    }
+
+    let mut count = count.lock().unwrap();
+    *count -= 1;
+
+    if *count > 0 {
+        // Wait for the end of the check of other offers.
+        while *count > 0 {
+            let result = cvar.wait_timeout(count, *CHECK_TIMEOUT).unwrap();
+
+            // Either the time is up or some thread fails.
+            if result.1.timed_out() {
+                guard.done = true;
+                return;
+            }
+
+            count = result.0;
+        }
+    } else {
+        cvar.notify_all();
+    }
+
+    let inner_id = offer.inner_id;
+
+    if cfg!(feature = "place-bets") {
+        if let Err(error) = bookie.gambler.place_bet(offer, outcome, stake) {
+            error!(target: bookie.module, "While placing bet: {}", error);
+            return;
+        }
+
+        guard.hold = None;
+    }
+
+    combo::mark_as_placed(&bookie.host, inner_id);
+
+    if let Err(error) = bookie.gambler.check_balance().map(|b| bookie.set_balance(b)) {
+        error!(target: bookie.module, "While checking balance: {}", error);
+        return;
+    }
+
+    guard.done = true;
+}
