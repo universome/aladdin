@@ -13,7 +13,9 @@ pub trait Gambler {
     fn check_balance(&self) -> Result<Currency>;
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()>;
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()>;
-    fn check_offer(&self, offer: &Offer) -> Result<bool> { Ok(true) }
+    fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
+        Ok(true)
+    }
 }
 
 pub type BoxedGambler = Box<Gambler + Send + Sync>;

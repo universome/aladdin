@@ -185,7 +185,7 @@ impl Gambler for EGB {
         }
     }
 
-    fn check_offer(&self, offer: &Offer) -> Result<bool> {
+    fn check_offer(&self, offer: &Offer, _: &Outcome, _: Currency) -> Result<bool> {
         let user_time = self.user_time.load(Relaxed);
         let update_time = self.update_time.load(Relaxed);
 
