@@ -18,12 +18,12 @@ extern crate url;
 extern crate mime;
 extern crate serde;
 extern crate serde_json;
-extern crate toml;
 extern crate websocket;
 extern crate rusqlite;
 
 use std::thread;
 
+mod constants;
 mod base;
 mod events;
 mod gamblers;

@@ -1,6 +1,6 @@
 use std::thread;
 use std::cmp::Ordering;
-use std::time::{Instant, Duration};
+use std::time::Instant;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicIsize};
 use std::sync::atomic::Ordering::Relaxed;
@@ -8,7 +8,8 @@ use std::sync::mpsc::{self, Sender, Receiver};
 use std::sync::{Arc, Mutex, RwLock, Condvar, RwLockReadGuard, RwLockWriteGuard};
 use time;
 
-use base::config::CONFIG;
+use constants::{RETRY_DELAY, CHECK_TIMEOUT, BASE_STAKE, MAX_STAKE, MIN_PROFIT, MAX_PROFIT};
+use constants::BOOKIES_AUTH;
 use base::currency::Currency;
 use events::{Offer, Outcome, DRAW, fuzzy_eq};
 use gamblers::{self, BoxedGambler};
@@ -69,18 +70,6 @@ pub type Events = HashMap<Offer, Event>;
 lazy_static! {
     pub static ref BOOKIES: Vec<Bookie> = init_bookies();
     static ref EVENTS: RwLock<Events> = RwLock::new(HashMap::new());
-
-    // TODO(loyd): add getters to `config` module and refactor this.
-    static ref CHECK_TIMEOUT: Duration = CONFIG.lookup("arbitrer.check-timeout")
-        .map(|x| Duration::new(x.as_integer().unwrap() as u64, 0)).unwrap();
-    static ref BASE_STAKE: Currency = CONFIG.lookup("arbitrer.base-stake")
-        .unwrap().as_float().unwrap().into();
-    static ref MAX_STAKE: Currency = CONFIG.lookup("arbitrer.max-stake")
-        .unwrap().as_float().unwrap().into();
-    static ref MIN_PROFIT: f64 = CONFIG.lookup("arbitrer.min-profit")
-        .unwrap().as_float().unwrap();
-    static ref MAX_PROFIT: f64 = CONFIG.lookup("arbitrer.max-profit")
-        .unwrap().as_float().unwrap();
 }
 
 pub fn acquire_events() -> RwLockReadGuard<'static, Events> {
@@ -106,22 +95,10 @@ pub fn run() {
 }
 
 fn init_bookies() -> Vec<Bookie> {
-    let mut bookies = Vec::new();
-    let array = CONFIG.lookup("bookies").unwrap().as_slice().unwrap();
-
-    for item in array {
-        let enabled = item.lookup("enabled").map_or(true, |x| x.as_bool().unwrap());
-
-        if !enabled {
-            continue;
-        }
-
-        let host = item.lookup("host").unwrap().as_str().unwrap();
-        let username = item.lookup("username").unwrap().as_str().unwrap();
-        let password = item.lookup("password").unwrap().as_str().unwrap();
+    BOOKIES_AUTH.iter().map(|&(host, username, password)| {
         let (module, gambler) = gamblers::new(host);
 
-        bookies.push(Bookie {
+        Bookie {
             host: host.to_owned(),
             active: AtomicBool::new(false),
             balance: AtomicIsize::new(0),
@@ -129,10 +106,8 @@ fn init_bookies() -> Vec<Bookie> {
             password: password.to_owned(),
             module: module,
             gambler: gambler
-        });
-    }
-
-    bookies
+        }
+    }).collect()
 }
 
 fn run_gambler(bookie: &'static Bookie,
@@ -152,20 +127,17 @@ fn run_gambler(bookie: &'static Bookie,
     }
 
     let module = bookie.module;
-    let retry_delay = CONFIG.lookup("arbitrer.retry-delay")
-        .and_then(|d| d.as_integer())
-        .map(|d| 60 * d as u64)
-        .unwrap();
-
-    let mut delay = 0;
+    let mut delay = *RETRY_DELAY;
+    let mut started = false;
 
     loop {
-        if delay > 0 {
-            info!(target: module, "Sleeping for {:02}:{:02}", delay / 60, delay % 60);
-            thread::sleep(Duration::new(delay, 0));
+        if started {
+            let secs = delay.as_secs();
+            info!(target: module, "Sleeping for {:02}:{:02}", secs / 60, secs % 60);
+            thread::sleep(delay);
             delay *= 2;
         } else {
-            delay = retry_delay;
+            started = true;
         }
 
         let _guard = Guard(bookie);
@@ -187,7 +159,7 @@ fn run_gambler(bookie: &'static Bookie,
         info!(target: module, "Watching for offers...");
         bookie.activate();
 
-        delay = retry_delay;
+        delay = *RETRY_DELAY;
 
         if let Err(error) = bookie.gambler.watch(&|offer, update| {
             // If errors occured at the time of betting.
@@ -339,7 +311,7 @@ fn realize_event(event: &Event) {
         if profit > max_profit { max_profit = profit }
     }
 
-    if *MIN_PROFIT <= min_profit && min_profit <= *MAX_PROFIT {
+    if MIN_PROFIT <= min_profit && min_profit <= MAX_PROFIT {
         // TODO(loyd): drop offers instead of whole events.
         if !no_bets_on_event(event) {
             return;
@@ -353,7 +325,7 @@ fn realize_event(event: &Event) {
         };
 
         place_bets(&pairs, &stakes);
-    } else if max_profit > *MAX_PROFIT {
+    } else if max_profit > MAX_PROFIT {
         warn!("Suspiciously high profit ({:+.1}%)", max_profit * 100.);
     } else {
         debug!("  Too small profit (min: {:+.1}%, max: {:+.1}%)",
