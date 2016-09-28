@@ -71,7 +71,7 @@ lazy_static! {
     static ref EVENTS: RwLock<Events> = RwLock::new(HashMap::new());
 
     // TODO(loyd): add getters to `config` module and refactor this.
-    static ref CHECK_TIMEOUT: Duration = CONFIG.lookup("arbitrer.check-timeount")
+    static ref CHECK_TIMEOUT: Duration = CONFIG.lookup("arbitrer.check-timeout")
         .map(|x| Duration::new(x.as_integer().unwrap() as u64, 0)).unwrap();
     static ref BASE_STAKE: Currency = CONFIG.lookup("arbitrer.base-stake")
         .unwrap().as_float().unwrap().into();
