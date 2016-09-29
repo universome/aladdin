@@ -10,22 +10,15 @@ use hyper::uri::RequestUri::AbsolutePath;
 use log::LogLevel;
 use time;
 
+use constants::{PORT, COMBO_COUNT};
 use base::error::Result;
 use base::logger;
-use base::config::CONFIG;
 use base::currency::Currency;
 use arbitrer::{self, Bookie, Events, MarkedOffer};
 use combo::{self, Combo};
 
-lazy_static! {
-    static ref PORT: u16 = CONFIG.lookup("server.port")
-        .unwrap().as_integer().unwrap() as u16;
-    static ref COMBO_COUNT: u32 = CONFIG.lookup("server.combo-count")
-        .unwrap().as_integer().unwrap() as u32;
-}
-
 pub fn run() {
-    let mut server = Server::http(("0.0.0.0", *PORT)).unwrap();
+    let mut server = Server::http(("0.0.0.0", PORT)).unwrap();
 
     server.keep_alive(None);
     server.set_read_timeout(Some(Duration::new(2, 0)));
@@ -67,7 +60,7 @@ fn send_index(res: Response) -> Result<()> {
 
     render_bookies(&mut buffer, &arbitrer::BOOKIES);
 
-    let combos = combo::load_recent(*COMBO_COUNT);
+    let combos = combo::load_recent(COMBO_COUNT);
     render_combos(&mut buffer, &combos);
 
     {

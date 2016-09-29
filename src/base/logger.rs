@@ -5,7 +5,7 @@ use log::{self, Log, LogRecord, LogLevel, LogMetadata, SetLoggerError};
 use env_logger::{LogBuilder as EnvLogBuilder, Logger as EnvLogger};
 use time;
 
-use base::config::CONFIG;
+use constants::HISTORY_SIZE;
 
 struct Logger(EnvLogger);
 
@@ -71,8 +71,6 @@ pub struct Message {
 
 lazy_static! {
     static ref HISTORY: RwLock<VecDeque<Message>> = RwLock::new(VecDeque::new());
-    static ref HISTORY_SIZE: usize = CONFIG.lookup("logging.history-size")
-        .unwrap().as_integer().unwrap() as usize;
 }
 
 fn save_to_history(message: Message) {
@@ -85,7 +83,7 @@ fn save_to_history(message: Message) {
         }
     }
 
-    if history.len() >= *HISTORY_SIZE {
+    if history.len() as u32 >= HISTORY_SIZE {
         history.pop_front();
     }
 

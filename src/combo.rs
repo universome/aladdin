@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 use rusqlite::{Connection, Row};
 
-use base::config::CONFIG;
+use constants::DATABASE;
 use base::currency::Currency;
 
 #[derive(Debug)]
@@ -25,8 +25,7 @@ pub struct Bet {
 
 lazy_static! {
     static ref DB: Mutex<Connection> = {
-        let path = CONFIG.lookup("arbitrer.database").unwrap().as_str().unwrap();
-        let db = Connection::open(path).unwrap();
+        let db = Connection::open(DATABASE).unwrap();
 
         db.execute(&format!("CREATE TABLE IF NOT EXISTS {}", BET_SCHEMA), &[]).unwrap();
         db.execute(&format!("CREATE TABLE IF NOT EXISTS {}", COMBO_SCHEMA), &[]).unwrap();
