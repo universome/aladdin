@@ -137,6 +137,15 @@ impl Gambler for XBet {
 
         Ok(())
     }
+
+    fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
+        let path = "/LineFeed/Get1x2?sportId=40&count=50&cnt=10&lng=en";
+        let message = try!(self.session.get_json::<Message>(path));
+
+        Ok(try!(grab_offers(message)).into_iter()
+            .find(|actual| actual.inner_id == offer.inner_id)
+            .map_or(true, |actual| &actual == offer && actual.outcomes == offer.outcomes))
+    }
 }
 
 #[derive(Deserialize)]

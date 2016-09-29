@@ -29,6 +29,43 @@ impl CybBet {
             session: Session::new("cybbet.com")
         }
     }
+
+    fn try_place_bet(&self, url: &str,
+                     offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<String>
+    {
+        let stake: f64 = stake.into();
+
+        let result = if outcome.0 == DRAW { 0 } else {
+            1 + offer.outcomes.iter().position(|o| o == outcome).unwrap()
+        };
+
+        let bets = format!(r#"{{
+            "single": [{{
+                "gameId": "{id}",
+                "subGameId": "undefined",
+                "result": "{result}",
+                "isSubgame": "0",
+                "isTournament": "0",
+                "type": "single",
+                "koef": {coef},
+                "tipMoney": "2",
+                "summ": {stake}
+            }}],
+            "express": [],
+            "expressGame": []
+        }}"#,
+            id = offer.inner_id,
+            result = result,
+            coef = outcome.1,
+            stake = stake);
+
+        let mut response = try!(self.session.post_form(url, &[("bets", &bets)], &[]));
+
+        let mut string = String::new();
+        try!(response.read_to_string(&mut string));
+
+        Ok(string)
+    }
 }
 
 impl Gambler for CybBet {
@@ -147,43 +184,19 @@ impl Gambler for CybBet {
     }
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
-        let stake: f64 = stake.into();
+        let response = try!(self.try_place_bet("/games/bet", &offer, &outcome, stake));
 
-        let result = if outcome.0 == DRAW { 0 } else {
-            1 + offer.outcomes.iter().position(|o| o == &outcome).unwrap()
-        };
-
-        let bets = format!(r#"{{
-            "single": [{{
-                "gameId": "{id}",
-                "subGameId": "undefined",
-                "result": "{result}",
-                "isSubgame": "0",
-                "isTournament": "0",
-                "type": "single",
-                "koef": {coef},
-                "tipMoney": "2",
-                "summ": {stake}
-            }}],
-            "express": [],
-            "expressGame": []
-        }}"#,
-            id = offer.inner_id,
-            result = result,
-            coef = outcome.1,
-            stake = stake);
-
-        let mut response = try!(self.session.post_form("/games/bet", &[("bets", &bets)], &[]));
-
-        let mut string = String::new();
-        try!(response.read_to_string(&mut string));
-
-        if string.contains("messageSuccess") {
+        if response.contains("messageSuccess") {
             Ok(())
         } else {
             // TODO(loyd): what about doing something more clever?
-            Err(Error::from(string))
+            Err(Error::from(response))
         }
+    }
+
+    fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
+        let response = try!(self.try_place_bet("/games/checkbet", &offer, &outcome, stake));
+        Ok(response.contains("warning\":\"\""))
     }
 }
 

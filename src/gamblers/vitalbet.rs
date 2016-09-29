@@ -132,7 +132,7 @@ impl Gambler for VitalBet {
         }
     }
 
-    fn place_bet(&self, offer: Offer, outcome: Outcome, bet: Currency) -> Result<()> {
+    fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
         let state = &*try!(self.state.lock());
         let match_ = match state.matches.get(&(offer.inner_id as u32)) {
             Some(m) => m,
@@ -156,8 +156,8 @@ impl Gambler for VitalBet {
                             IsBanker: false
                         }
                     ],
-                    Stake: bet.into(),
-                    Return: (bet * outcome.1).into()
+                    Stake: stake.into(),
+                    Return: (stake * outcome.1).into()
                 }
             ]
         };

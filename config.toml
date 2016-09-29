@@ -3,6 +3,7 @@ history-size = 20
 
 [arbitrer]
 retry-delay = 30    # [minutes]
+check-timeout = 1   # [seconds]
 
 base-stake = 1.00   # [$]
 
