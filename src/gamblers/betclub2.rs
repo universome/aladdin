@@ -175,6 +175,10 @@ fn get_offer(event: &Event) -> Option<Offer> {
     let kind = match event.CountryName.as_ref() {
         "Dota II" => Kind::Dota2(Dota2::Series),
         "StarCraft II" => Kind::StarCraft2(StarCraft2::Series),
+        "Counter-Strike" => Kind::CounterStrike(CounterStrike::Series),
+        "Heroes Of The Storm" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
+        "League of Legends" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
+        "Overwatch" => Kind::Overwatch(Overwatch::Series),
         unsupported_type => {
             warn!("Found new type: {}", unsupported_type);
             return None;
