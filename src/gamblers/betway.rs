@@ -303,7 +303,8 @@ struct Market {
     outcomes: Vec<BetwayOutcome>,
     active: bool,
     cname: String,
-    typeCname: String
+    typeCname: String,
+    displayed: bool
 }
 
 #[derive(Deserialize, Debug)]
@@ -376,7 +377,8 @@ struct EventUpdate {
 struct MarketUpdate {
     eventId: u32,
     marketId: u32,
-    active: Option<bool>
+    active: Option<bool>,
+    displayed: Option<bool>
 }
 
 #[derive(Deserialize, Debug)]
@@ -495,6 +497,7 @@ fn get_kind_from_event(event: &Event) -> Option<Kind> {
 
 fn get_good_market_id(event: &Event) -> Option<u32> {
     let markets = event.markets.iter()
+        .filter(|m| m.active && m.displayed)
         .filter(|m| m.cname == "match-winner" || m.cname == "win-draw-win")
         .collect::<Vec<_>>();
 
@@ -553,6 +556,7 @@ fn apply_market_update(event: &mut Event, market_update: &MarketUpdate) -> bool 
     };
 
     market.active = market_update.active.unwrap_or(market.active);
+    market.displayed = market_update.displayed.unwrap_or(market.displayed);
 
     true
 }
