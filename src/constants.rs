@@ -28,4 +28,5 @@ pub const BOOKIES_AUTH: &[(&str, &str, &str)] = &[
     ("1xsporta.space",  "shmaladdin.rs@gmail.com",  "aladdin.rs"),
     ("cybbet.com",      "aladdin",                  "Shmaladdin42"),
     ("betway.com",      "shmaladdin",               "aladdin"),
+    ("betclub2.com",    "shmaladdin.rs@gmail.com",  "aladdin571")
 ];
