@@ -45,7 +45,6 @@ impl Gambler for BetClub {
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
         let mut offers: HashMap<u64, Offer> = HashMap::new();
         let path = "/WebServices/BRService.asmx/GetTournamentEventsBySportByDuration";
-        let body = r#"{"culture":"en-us","sportId":300,"countHours":"12"}"#;
         let body = EventsRequest {culture: "en-us", sportId: 300, countHours: "12"};
 
         // TODO(universome): Add fluctuations (cloudflare can spot us)
@@ -53,44 +52,30 @@ impl Gambler for BetClub {
             let response = try!(self.session.post_json(path, &body));
             let tournaments = try!(json::from_reader::<_, TournamentsResponse>(response)).d;
             let fresh_events: Vec<_> = tournaments.into_iter()
-                .flat_map(|t| t.EventsHeaders).collect();
+                .flat_map(|t| t.EventsHeaders)
+                .collect();
+            let fresh_offers: Vec<_> = fresh_events.iter().filter_map(get_offer).collect();
+            let fresh_ids: HashSet<_> = fresh_offers.iter().map(|o| o.inner_id).collect();
 
-            // Create HashMap of new offers
-            let fresh_offers_vec: Vec<_> = fresh_events.iter().filter_map(get_offer).collect();
-            let mut fresh_offers = HashMap::new();
-            for offer in fresh_offers_vec.into_iter() {
-                fresh_offers.insert(offer.inner_id, offer);
+            // Remove outdated offers
+            let outdated_ids: HashSet<_> = offers.keys()
+                .filter(|id| !fresh_ids.contains(id))
+                .map(|id| id.clone())
+                .collect();
+
+            for id in outdated_ids {
+                let offer = offers.remove(&id).unwrap();
+                cb(offer, false);
             }
 
-            // 1. Remove outdated offers
-            // TODO(universome): how to iterate over hashmap and change it?
-            let offers_clone = offers.clone();
-            let mut offers_to_remove = HashSet::new();
-            {
-                {
-                    for offer_id in offers_clone.keys() {
-                        if !fresh_offers.contains_key(offer_id) {
-                            offers_to_remove.insert(offer_id);
-                        }
+            // Gather new offers
+            for fresh_offer in fresh_offers {
+                if let Some(offer) = offers.get(&fresh_offer.inner_id) {
+                    if offer == &fresh_offer && offer.date == fresh_offer.date {
+                        continue; // It's just the same offer :(
                     }
                 }
-            }
-            for offer_id in offers_to_remove.drain() {
-                cb(offers.remove(offer_id).unwrap(), false);
-            }
 
-            // 2. Gather new offers
-            for (_, fresh_offer) in fresh_offers.drain() {
-                match offers.get(&fresh_offer.inner_id) {
-                    Some(offer) => {
-                        // TODO(universome): PartialEq for &events::Offer
-                        if offer.clone() == fresh_offer && offer.date == fresh_offer.date {
-                            // Ah, it's just the same offer :(
-                            continue;
-                        }
-                    },
-                    _ => {}
-                }
                 cb(fresh_offer.clone(), true);
                 offers.insert(fresh_offer.inner_id, fresh_offer);
             }
