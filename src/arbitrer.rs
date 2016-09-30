@@ -41,12 +41,12 @@ impl Bookie {
         Currency(self.balance.load(Relaxed) as i64)
     }
 
-    fn activate(&self) {
-        self.active.store(true, Relaxed);
+    fn activate(&self) -> bool {
+        self.active.swap(true, Relaxed)
     }
 
-    fn deactivate(&self) {
-        self.active.store(false, Relaxed);
+    fn deactivate(&self) -> bool {
+        self.active.swap(false, Relaxed)
     }
 
     fn set_balance(&self, balance: Currency) {
@@ -118,7 +118,7 @@ fn run_gambler(bookie: &'static Bookie,
 
     impl Drop for Guard {
         fn drop(&mut self) {
-            regression(self.0);
+            degradation(self.0);
 
             if thread::panicking() {
                 error!(target: self.0.module, "Terminated due to panic");
@@ -179,10 +179,12 @@ fn run_gambler(bookie: &'static Bookie,
     }
 }
 
-fn regression(bookie: &Bookie) {
-    let mut events = acquire_events_mut();
+fn degradation(bookie: &Bookie) {
+    if !bookie.deactivate() {
+        return;
+    }
 
-    bookie.deactivate();
+    let mut events = acquire_events_mut();
 
     let outdated = events.values()
         .flat_map(|offers| offers.iter().filter(|o| o.0 == bookie))
@@ -464,7 +466,7 @@ fn place_bet(bookie: &Bookie, offer: Offer, outcome: Outcome, stake: Currency,
     impl<'b> Drop for Guard<'b> {
         fn drop(&mut self) {
             if !self.done {
-                regression(self.bookie);
+                degradation(self.bookie);
             }
 
             if let Some(stake) = self.hold {
