@@ -163,14 +163,12 @@ impl Gambler for BetWay {
                 Update::OutcomeUpdate(ref u) => state.events.get_mut(&u.eventId),
                 _ => None
             } {
-                if !apply_update(&mut event, &update) {
-                    warn!("We've somehow received an update for unknown event: {:?}", update);
-                }
-
-                if let Some(offer) = try!(create_offer_from_event(&event)) {
-                    cb(offer, true);
-                } else {
-                    cb(try!(create_dummy_offer_from_event(&event)), false);
+                if apply_update(&mut event, &update) {
+                    if let Some(offer) = try!(create_offer_from_event(&event)) {
+                        cb(offer, true);
+                    } else {
+                        cb(try!(create_dummy_offer_from_event(&event)), false);
+                    }
                 }
             }
         }
@@ -303,7 +301,8 @@ struct Market {
     outcomes: Vec<BetwayOutcome>,
     active: bool,
     cname: String,
-    typeCname: String
+    typeCname: String,
+    displayed: bool
 }
 
 #[derive(Deserialize, Debug)]
@@ -356,7 +355,7 @@ impl Deserialize for Update {
         let update_type = result.find("type").unwrap().as_str().unwrap_or("No update type").to_string();
 
         Ok(match update_type.as_ref() {
-            "event" => Update::EventUpdate( json::from_value(result).unwrap() ),
+            "event" | "gameEvent" => Update::EventUpdate( json::from_value(result).unwrap() ),
             "market" => Update::MarketUpdate( json::from_value(result).unwrap() ),
             "outcome" => Update::OutcomeUpdate( json::from_value(result).unwrap() ),
             other_type => Update::UnsupportedUpdate( UnsupportedUpdate(other_type.to_string()))
@@ -367,7 +366,7 @@ impl Deserialize for Update {
 #[derive(Deserialize, Debug)]
 struct EventUpdate {
     eventId: u32,
-    live: bool,
+    live: Option<bool>,
     active: Option<bool>,
     // started: bool
 }
@@ -376,7 +375,8 @@ struct EventUpdate {
 struct MarketUpdate {
     eventId: u32,
     marketId: u32,
-    active: Option<bool>
+    active: Option<bool>,
+    displayed: Option<bool>
 }
 
 #[derive(Deserialize, Debug)]
@@ -445,7 +445,7 @@ fn create_offer_from_event(event: &Event) -> Result<Option<Offer>> {
     let kind = get_kind_from_event(event);
     let outcomes = get_outcomes_from_event(event);
 
-    if kind.is_none() || outcomes.is_none() {
+    if kind.is_none() || outcomes.is_none() || !event.active {
         return Ok(None);
     }
 
@@ -495,6 +495,7 @@ fn get_kind_from_event(event: &Event) -> Option<Kind> {
 
 fn get_good_market_id(event: &Event) -> Option<u32> {
     let markets = event.markets.iter()
+        .filter(|m| m.active && m.displayed)
         .filter(|m| m.cname == "match-winner" || m.cname == "win-draw-win")
         .collect::<Vec<_>>();
 
@@ -539,41 +540,77 @@ fn apply_update(event: &mut Event, update: &Update) -> bool {
     }
 }
 
-fn apply_event_update(event: &mut Event, event_update: &EventUpdate) -> bool {
-    event.active = event_update.active.unwrap_or(event.active);
-    event.live = event_update.live;
+fn apply_event_update(event: &mut Event, update: &EventUpdate) -> bool {
+    let mut is_updated = false;
 
-    true
+    if update.active.is_some() && update.active.unwrap() != event.active {
+        event.active = update.active.unwrap();
+        is_updated = true;
+    }
+
+    if update.live.is_some() && update.live.unwrap() != event.live {
+        event.live = update.live.unwrap();
+        is_updated = true;
+    }
+
+    is_updated
 }
 
-fn apply_market_update(event: &mut Event, market_update: &MarketUpdate) -> bool {
-    let market = match event.markets.iter_mut().find(|m| m.marketId == market_update.marketId) {
+fn apply_market_update(event: &mut Event, update: &MarketUpdate) -> bool {
+    let mut is_updated = false;
+
+    let market = match event.markets.iter_mut().find(|m| m.marketId == update.marketId) {
         Some(m) => m,
-        None => return false
+        None => return is_updated
     };
 
-    market.active = market_update.active.unwrap_or(market.active);
+    if update.active.is_some() && update.active.unwrap() != market.active {
+        market.active = update.active.unwrap();
+        is_updated = true;
+    }
 
-    true
+    if update.displayed.is_some() && update.displayed.unwrap() != market.displayed {
+        market.displayed = update.displayed.unwrap();
+        is_updated = true;
+    }
+
+    is_updated
 }
 
-fn apply_outcome_update(event: &mut Event, outcome_update: &OutcomeUpdate) -> bool {
-    let market = match event.markets.iter_mut().find(|m| m.marketId == outcome_update.marketId) {
+fn apply_outcome_update(event: &mut Event, update: &OutcomeUpdate) -> bool {
+    let mut is_updated = false;
+
+    let market = match event.markets.iter_mut().find(|m| m.marketId == update.marketId) {
         Some(m) => m,
-        None => return false
+        None => return is_updated
     };
 
-    let outcome = match market.outcomes.iter_mut().find(|o| o.outcomeId == outcome_update.outcomeId) {
+    let outcome = match market.outcomes.iter_mut().find(|o| o.outcomeId == update.outcomeId) {
         Some(o) => o,
-        None => return false
+        None => return is_updated
     };
 
-    outcome.priceDec = outcome_update.priceDec.or(outcome.priceDec);
-    outcome.priceDen = outcome_update.priceDen.or(outcome.priceDen);
-    outcome.priceNum = outcome_update.priceNum.or(outcome.priceNum);
-    outcome.active = outcome_update.active.unwrap_or(outcome.active);
+    if update.priceDec.is_some() && update.priceDec != outcome.priceDec {
+        outcome.priceDec = update.priceDec;
+        is_updated = true;
+    }
 
-    true
+    if update.priceDen.is_some() && update.priceDen != outcome.priceDen {
+        outcome.priceDen = update.priceDen;
+        is_updated = true;
+    }
+
+    if update.priceNum.is_some() && update.priceNum != outcome.priceNum {
+        outcome.priceNum = update.priceNum;
+        is_updated = true;
+    }
+
+    if update.active.is_some() && update.active != Some(outcome.active) {
+        outcome.active = update.active.unwrap();
+        is_updated = true;
+    }
+
+    is_updated
 }
 
 #[derive(Serialize, Debug)]
