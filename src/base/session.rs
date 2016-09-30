@@ -1,7 +1,9 @@
 use std::io::Read;
+use std::io::ErrorKind::{WouldBlock, TimedOut};
 use std::time::Duration;
 use std::sync::Mutex;
 use url::form_urlencoded::Serializer as UrlSerializer;
+use hyper::error::{Error as HyperError, Result as HyperResult};
 use hyper::client::{Client, RedirectPolicy, Response};
 use hyper::header::{Headers, SetCookie, Cookie, UserAgent, Accept, ContentType, qitem};
 use kuchiki;
@@ -10,9 +12,13 @@ use kuchiki::traits::ParserExt;
 use serde::{Serialize, Deserialize};
 use serde_json as json;
 
+use base::error::{Result, Error};
+
 header! { (XRequestedWith, "X-Requested-With") => [String] }
 
-use base::error::Result;
+const MAX_RETRIES: u32 = 2;
+const READ_TIMEOUT: u64 = 20;   // We should set large timeout due to the long-polling.
+const WRITE_TIMEOUT: u64 = 5;
 
 const USER_AGENT: &str = concat!("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) ",
                                  "AppleWebKit/537.36 (KHTML, like Gecko) ",
@@ -26,8 +32,8 @@ pub struct Session {
 impl Session {
     pub fn new(host: &str) -> Session {
         let mut client = Client::new();
-        client.set_read_timeout(Some(Duration::from_secs(25)));
-        client.set_write_timeout(Some(Duration::from_secs(25)));
+        client.set_read_timeout(Some(Duration::from_secs(READ_TIMEOUT)));
+        client.set_write_timeout(Some(Duration::from_secs(WRITE_TIMEOUT)));
         client.set_redirect_policy(RedirectPolicy::FollowNone);
 
         Session {
@@ -139,7 +145,37 @@ impl Session {
         None
     }
 
-    fn request(&self, path: &str, body: Option<&str>, mut headers: Headers) -> Result<Response> {
+    fn request(&self, path: &str, body: Option<&str>, headers: Headers) -> Result<Response> {
+        let mut retries = MAX_RETRIES;
+
+        loop {
+            let result = self._request(path, body, headers.clone());
+
+            // Check the timeout.
+            if let Err(HyperError::Io(ref io)) = result {
+                let kind = io.kind();
+
+                if retries > 0 && (kind == WouldBlock || kind == TimedOut) {
+                    warn!("Retrying {}...", path);
+                    retries -= 1;
+                    continue;
+                }
+            }
+
+            // Check the status.
+            if let Ok(ref response) = result {
+                // TODO(loyd): actually we need to follow redirects when possible.
+                // now it's almost always should be error, but cybbet relies on 302.
+                if !response.status.is_success() && !response.status.is_redirection() {
+                    return Err(Error::from(response.status));
+                }
+            }
+
+            return result.map_err(Error::from);
+        }
+    }
+
+    fn _request(&self, path: &str, body: Option<&str>, mut headers: Headers) -> HyperResult<Response> {
         let url = format!("https://{}{}", self.host, path);
 
         debug!("{} {}", if body.is_some() { "POST" } else { "GET" }, url);
@@ -157,7 +193,7 @@ impl Session {
         let response = try!(builder.headers(headers).send());
 
         if !response.status.is_success() && !response.status.is_redirection() {
-            return Err(From::from(response.status));
+            return Ok(response);
         }
 
         if let Some(cookies) = response.headers.get::<SetCookie>() {
