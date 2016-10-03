@@ -179,6 +179,7 @@ fn get_offer(event: &Event) -> Option<Offer> {
         "Heroes Of The Storm" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
         "League of Legends" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
         "Overwatch" => Kind::Overwatch(Overwatch::Series),
+        "World of Tanks" => Kind::WorldOfTanks(WorldOfTanks::Series),
         unsupported_type => {
             warn!("Found new type: {}", unsupported_type);
             return None;
