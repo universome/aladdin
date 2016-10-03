@@ -36,7 +36,7 @@ impl Gambler for BetClub {
 
     fn check_balance(&self) -> Result<Currency> {
         let path = "/WebServices/BRService.asmx/GetUserBalance";
-        let response = try!(self.session.post_empty_json(path));
+        let response = try!(self.session.post_as_json(path, ""));
         let balance: BalanceResponse = try!(json::from_reader(response));
 
         Ok(Currency::from(balance.d.Amount))

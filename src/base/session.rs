@@ -135,14 +135,14 @@ impl Session {
         self.post(path, &encoded_body, headers)
     }
 
-    pub fn post_empty_json(&self, path: &str) -> Result<Response> {
+    pub fn post_as_json(&self, path: &str, body: &str) -> Result<Response> {
         let mut headers = Headers::new();
 
         headers.set(ContentType(mime!(Application/Json)));
         headers.set(Accept(vec![qitem(mime!(Application/Json))]));
         headers.set(XRequestedWith("XMLHttpRequest".to_owned()));
 
-        self.post(path, "", headers)
+        self.post(path, body, headers)
     }
 
     pub fn get_cookie(&self, cookie_name: &str) -> Option<String> {
