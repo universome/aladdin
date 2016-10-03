@@ -1,9 +1,11 @@
 #![allow(non_snake_case)]
 
-use serde_json as json;
+use std::io::Read;
+use std::sync::Mutex;
 use std::collections::{HashMap, HashSet};
+use serde_json as json;
 
-use base::error::{Result};
+use base::error::{Result, Error};
 use base::session::Session;
 use base::timers::Periodic;
 use base::currency::Currency;
@@ -12,13 +14,23 @@ use events::{Offer, Outcome, Kind, DRAW};
 use events::kinds::*;
 
 pub struct BetClub {
-    session: Session
+    session: Session,
+    state: Mutex<State>
+}
+
+struct State {
+    offers: HashMap<u64, Offer>,
+    events: Vec<Event>
 }
 
 impl BetClub {
     pub fn new() -> BetClub {
         BetClub {
-            session: Session::new("betclub2.com")
+            session: Session::new("betclub2.com"),
+            state: Mutex::new(State {
+                offers: HashMap::new(),
+                events: Vec::new()
+            })
         }
     }
 }
@@ -43,41 +55,41 @@ impl Gambler for BetClub {
     }
 
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
-        let mut offers: HashMap<u64, Offer> = HashMap::new();
         let path = "/WebServices/BRService.asmx/GetTournamentEventsBySportByDuration";
         let body = EventsRequest {culture: "en-us", sportId: 300, countHours: "12"};
 
         // TODO(universome): Add fluctuations (cloudflare can spot us)
         for _ in Periodic::new(30) {
+            let mut state = self.state.lock().unwrap();
             let response = try!(self.session.post_json(path, &body));
             let tournaments = try!(json::from_reader::<_, TournamentsResponse>(response)).d;
-            let fresh_events: Vec<_> = tournaments.into_iter()
-                .flat_map(|t| t.EventsHeaders)
-                .collect();
-            let fresh_offers: Vec<_> = fresh_events.iter().filter_map(get_offer).collect();
+
+            state.events = tournaments.into_iter().flat_map(|t| t.EventsHeaders).collect();
+
+            let fresh_offers: Vec<_> = state.events.iter().filter_map(get_offer).collect();
             let fresh_ids: HashSet<_> = fresh_offers.iter().map(|o| o.inner_id).collect();
 
             // Remove outdated offers
-            let outdated_ids: HashSet<_> = offers.keys()
+            let outdated_ids: HashSet<_> = state.offers.keys()
                 .filter(|id| !fresh_ids.contains(id))
                 .map(|id| id.clone())
                 .collect();
 
             for id in outdated_ids {
-                let offer = offers.remove(&id).unwrap();
+                let offer = state.offers.remove(&id).unwrap();
                 cb(offer, false);
             }
 
             // Gather new offers
             for fresh_offer in fresh_offers {
-                if let Some(offer) = offers.get(&fresh_offer.inner_id) {
+                if let Some(offer) = state.offers.get(&fresh_offer.inner_id) {
                     if offer == &fresh_offer && offer.date == fresh_offer.date {
                         continue; // It's just the same offer :(
                     }
                 }
 
                 cb(fresh_offer.clone(), true);
-                offers.insert(fresh_offer.inner_id, fresh_offer);
+                state.offers.insert(fresh_offer.inner_id, fresh_offer);
             }
         }
 
@@ -85,7 +97,71 @@ impl Gambler for BetClub {
     }
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
-        unimplemented!();
+        let stake: f64 = stake.into();
+        let state = try!(self.state.lock());
+        let event = state.events.iter().find(|e| e.Id == offer.inner_id as u32).unwrap();
+        let market = event.get_market().unwrap();
+
+        let basket = if outcome.0 == event.TeamsGroup[0] {&market.Rates[0].AddToBasket}
+                     else if outcome.0 == event.TeamsGroup[1] {&market.Rates[2].AddToBasket}
+                     else {&market.Rates[1].AddToBasket};
+
+        // Add bet to betslip
+        let body = format!(r#"{{
+            "eId": {event_id},
+            "bId": {bet_id},
+            "r": {coef},
+            "fs": {hand_size},
+            "a1": {add_1},
+            "a2": {add_2},
+            "isLive": {is_live},
+            "culture":"en-us"
+        }}"#,
+            event_id = basket.eId,
+            bet_id = basket.bId,
+            hand_size = match basket.fs { Some(v) => v.to_string(), _ => "null".to_string() },
+            add_1 = match basket.a1 { Some(v) => v.to_string(), _ => "null".to_string() },
+            add_2 = match basket.a2 { Some(v) => v.to_string(), _ => "null".to_string() },
+            coef = basket.r,
+            is_live = basket.isLive
+        );
+
+        let path = "/WebServices/BRService.asmx/AddToBetslip";
+        let mut response = try!(self.session.post_as_json(path, body.as_ref()));
+        let mut string = String::new();
+
+        try!(response.read_to_string(&mut string));
+
+        if !string.contains("LinesID") {
+            return Err(Error::from(format!("Could not place a bet: {}", string)));
+        }
+
+        // Place bet
+        let body = format!(r#"{{
+            "betAmount": {stake},
+            "systemIndex": -1,
+            "statuses": {{"{event_id}_{bet_id}_{hand_size}_{add_1}_{add_2}": true}},
+            "doAcceptOddsChanges": false
+        }}"#,
+            stake = stake,
+            event_id = basket.eId,
+            bet_id = basket.bId,
+            hand_size = match basket.fs { Some(v) => v.to_string(), _ => "null".to_string() },
+            add_1 = match basket.a1 { Some(v) => v.to_string(), _ => "null".to_string() },
+            add_2 = match basket.a2 { Some(v) => v.to_string(), _ => "null".to_string() }
+        );
+
+        let path = "/WebServices/BRService.asmx/PlaceBet";
+        let mut response = try!(self.session.post_as_json(path, body.as_ref()));
+        let mut string = String::new();
+
+        try!(response.read_to_string(&mut string));
+
+        if !string.contains("AmountIn") {
+            return Err(Error::from(format!("Could not place a bet: {}", string)));
+        }
+
+        Ok(())
     }
 }
 
@@ -124,6 +200,24 @@ struct Event {
     Markets: Vec<Market>
 }
 
+impl Event {
+    fn get_market(&self) -> Option<&Market> {
+        let market = match self.Markets.iter().find(|m| m.IsMain) {
+            Some(m) => m,
+            None => return None
+        };
+
+        if !market.IsEnabled
+        || !market.Rates.len() < 2
+        || market.Caption != "Result"
+        || self.TeamsGroup.len() < 2 {
+            return None;
+        }
+
+        Some(market)
+    }
+}
+
 #[derive(Deserialize, Debug)]
 struct Market {
     Id: String,
@@ -136,15 +230,18 @@ struct Market {
 #[derive(Deserialize, Debug)]
 struct Rate {
     NameShort: String,
-    AddToBasket: RateBasket
+    AddToBasket: Basket
 }
 
 #[derive(Deserialize, Debug)]
-struct RateBasket {
+struct Basket {
     eId: u32,
     bId: u32,
     r: f64,
-    isLive: bool
+    isLive: bool,
+    a1: Option<u32>,
+    a2: Option<u32>,
+    fs: Option<f64>
 }
 
 #[derive(Serialize, Debug)]
@@ -155,17 +252,10 @@ struct EventsRequest<'a> {
 }
 
 fn get_offer(event: &Event) -> Option<Offer> {
-    let market = match event.Markets.iter().find(|m| m.IsMain) {
+    let market = match event.get_market() {
         Some(m) => m,
-        None => {
-            warn!("There is no main market in event: {:?}", event);
-            return None;
-        }
+        None => return None
     };
-
-    if !market.IsEnabled || market.Caption != "Result" {
-        return None;
-    }
 
     let outcomes = match get_outcomes(event, &market) {
         Some(outcomes) => outcomes,
@@ -204,10 +294,6 @@ fn get_offer(event: &Event) -> Option<Offer> {
 }
 
 fn get_outcomes(event: &Event, market: &Market) -> Option<Vec<Outcome>> {
-    if !market.Rates.len() < 2 || event.TeamsGroup.len() < 2 {
-        return None;
-    }
-
     let mut outcomes = vec![
         Outcome(event.TeamsGroup[0].clone(), market.Rates[0].AddToBasket.r),
         Outcome(event.TeamsGroup[1].clone(), market.Rates.last().unwrap().AddToBasket.r)
