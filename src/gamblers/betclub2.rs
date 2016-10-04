@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use std::collections::{HashMap, HashSet};
 use serde_json as json;
 
-use base::error::{Result, Error};
+use base::error::{Result};
 use base::session::Session;
 use base::timers::Periodic;
 use base::currency::Currency;
@@ -148,7 +148,7 @@ impl Gambler for BetClub {
         try!(response.read_to_string(&mut string));
 
         if !string.contains("LinesID") {
-            return Err(Error::from(format!("Could not place a bet: {}", string)));
+            return Err(From::from(string));
         }
 
         // Place bet
@@ -173,7 +173,7 @@ impl Gambler for BetClub {
         try!(response.read_to_string(&mut string));
 
         if !string.contains("AmountIn") {
-            return Err(Error::from(format!("Could not place a bet: {}", string)));
+            return Err(From::from(string));
         }
 
         Ok(())
