@@ -33,6 +33,16 @@ impl BetClub {
             })
         }
     }
+
+    fn fetch_events(&self) -> Result<Vec<Event>> {
+        let path = "/WebServices/BRService.asmx/GetTournamentEventsBySportByDuration";
+        let body = EventsRequest {culture: "en-us", sportId: 300, countHours: "12"};
+
+        let response = try!(self.session.post_json(path, &body));
+        let tournaments = try!(json::from_reader::<_, TournamentsResponse>(response)).d;
+
+        Ok(tournaments.into_iter().flat_map(|t| t.EventsHeaders).collect())
+    }
 }
 
 impl Gambler for BetClub {
@@ -55,16 +65,11 @@ impl Gambler for BetClub {
     }
 
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
-        let path = "/WebServices/BRService.asmx/GetTournamentEventsBySportByDuration";
-        let body = EventsRequest {culture: "en-us", sportId: 300, countHours: "12"};
-
         // TODO(universome): Add fluctuations (cloudflare can spot us)
         for _ in Periodic::new(30) {
             let mut state = self.state.lock().unwrap();
-            let response = try!(self.session.post_json(path, &body));
-            let tournaments = try!(json::from_reader::<_, TournamentsResponse>(response)).d;
 
-            state.events = tournaments.into_iter().flat_map(|t| t.EventsHeaders).collect();
+            state.events = try!(self.fetch_events());
 
             let fresh_offers: Vec<_> = state.events.iter().filter_map(get_offer).collect();
             let fresh_ids: HashSet<_> = fresh_offers.iter().map(|o| o.inner_id).collect();
@@ -96,15 +101,25 @@ impl Gambler for BetClub {
         Ok(())
     }
 
+    fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
+        let current_events = try!(self.fetch_events());
+        let event = current_events.iter().find(|e| e.Id == offer.inner_id as u32).unwrap();
+
+        match get_offer(event) {
+            Some(offer) => Ok(offer.outcomes.into_iter().find(|o| o == outcome).is_some()),
+            None => Ok(false)
+        }
+    }
+
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
         let stake: f64 = stake.into();
         let state = try!(self.state.lock());
         let event = state.events.iter().find(|e| e.Id == offer.inner_id as u32).unwrap();
         let market = event.get_market().unwrap();
 
-        let basket = if outcome.0 == event.TeamsGroup[0] {&market.Rates[0].AddToBasket}
-                     else if outcome.0 == event.TeamsGroup[1] {&market.Rates[2].AddToBasket}
-                     else {&market.Rates[1].AddToBasket};
+        let basket = if outcome.0 == event.TeamsGroup[0] { &market.Rates[0].AddToBasket }
+                     else if outcome.0 == event.TeamsGroup[1] { &market.Rates[2].AddToBasket }
+                     else { &market.Rates[1].AddToBasket };
 
         // Add bet to betslip
         let body = format!(r#"{{
