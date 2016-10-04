@@ -14,7 +14,7 @@ use constants::{PORT, COMBO_COUNT};
 use base::error::Result;
 use base::logger;
 use base::currency::Currency;
-use arbitrer::{self, Bookie, Events, MarkedOffer};
+use arbitrer::{self, Bookie, Bucket, MarkedOffer};
 use combo::{self, Combo};
 
 pub fn run() {
@@ -64,8 +64,8 @@ fn send_index(res: Response) -> Result<()> {
     render_combos(&mut buffer, &combos);
 
     {
-        let events = arbitrer::acquire_events();
-        render_events(&mut buffer, &*events);
+        let bucket = arbitrer::acquire_bucket();
+        render_bucket(&mut buffer, &*bucket);
     }
 
     render_footer(&mut buffer, now.elapsed());
@@ -166,26 +166,26 @@ fn render_combos(b: &mut String, combos: &[Combo]) {
     }
 }
 
-fn render_events(b: &mut String, events: &Events) {
-    if events.is_empty() {
+fn render_bucket(b: &mut String, bucket: &Bucket) {
+    if bucket.is_empty() {
         return;
     }
 
-    writeln!(b, "# Events");
+    writeln!(b, "# Markets");
 
     let mut groups = HashMap::new();
 
-    for (offer, event) in events {
+    for (offer, event) in bucket.iter() {
         let vec = groups.entry(offer.kind.clone()).or_insert_with(Vec::new);
         vec.push(event);
     }
 
-    for (kind, mut events) in groups {
+    for (kind, mut bucket) in groups {
         writeln!(b, "## {:?}", kind);
 
-        events.sort_by_key(|event| event[0].1.date);
+        bucket.sort_by_key(|event| event[0].1.date);
 
-        for event in events {
+        for event in bucket {
             let outcome_count = event[0].1.outcomes.len();
 
             writeln!(b, "{}", iter::repeat('|').take(outcome_count + 4).collect::<String>());

@@ -33,7 +33,7 @@ macro_rules! gambler_map {
     }
 }
 
-pub fn new(host: &str) -> (&str, BoxedGambler) {
+pub fn new(host: &str) -> (&'static str, BoxedGambler) {
     gambler_map!(host,
         "egamingbets" => egamingbets::EGB,
         "vitalbet" => vitalbet::VitalBet,

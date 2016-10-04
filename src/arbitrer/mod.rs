@@ -1,83 +1,30 @@
 use std::thread;
 use std::cmp::Ordering;
 use std::time::Instant;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicIsize};
-use std::sync::atomic::Ordering::Relaxed;
 use std::sync::mpsc::{self, Sender, Receiver};
-use std::sync::{Arc, Mutex, RwLock, Condvar, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, Mutex, RwLock, Condvar, RwLockReadGuard};
 use time;
 
 use constants::{RETRY_DELAY, CHECK_TIMEOUT, BASE_STAKE, MAX_STAKE, MIN_PROFIT, MAX_PROFIT};
 use constants::BOOKIES_AUTH;
 use base::currency::Currency;
 use events::{Offer, Outcome, DRAW, fuzzy_eq};
-use gamblers::{self, BoxedGambler};
 use opportunity::{self, Strategy, MarkedOutcome};
 use combo::{self, Combo, Bet};
 
-pub struct Bookie {
-    pub host: String,
-    active: AtomicBool,
-    balance: AtomicIsize,
-    username: String,
-    password: String,
-    module: &'static str,
-    gambler: BoxedGambler
-}
+pub use self::bookie::{Bookie, MarkedOffer};
+pub use self::bucket::Bucket;
 
-impl PartialEq for Bookie {
-    fn eq(&self, other: &Bookie) -> bool {
-        self as *const _ == other as *const _
-    }
-}
-
-impl Bookie {
-    pub fn active(&self) -> bool {
-        self.active.load(Relaxed)
-    }
-
-    pub fn balance(&self) -> Currency {
-        Currency(self.balance.load(Relaxed) as i64)
-    }
-
-    fn activate(&self) -> bool {
-        self.active.swap(true, Relaxed)
-    }
-
-    fn deactivate(&self) -> bool {
-        self.active.swap(false, Relaxed)
-    }
-
-    fn set_balance(&self, balance: Currency) {
-        self.balance.store(balance.0 as isize, Relaxed);
-    }
-
-    fn hold_stake(&self, stake: Currency) {
-        self.balance.fetch_sub(stake.0 as isize, Relaxed);
-    }
-
-    fn release_stake(&self, stake: Currency) {
-        self.balance.fetch_add(stake.0 as isize, Relaxed);
-    }
-}
-
-#[derive(Clone)]
-pub struct MarkedOffer(pub &'static Bookie, pub Offer);
-pub type Event = Vec<MarkedOffer>;
-pub type Events = HashMap<Offer, Event>;
+mod bookie;
+mod bucket;
 
 lazy_static! {
     pub static ref BOOKIES: Vec<Bookie> = init_bookies();
-    static ref EVENTS: RwLock<Events> = RwLock::new(HashMap::new());
+    static ref BUCKET: RwLock<Bucket> = RwLock::new(Bucket::new());
 }
 
-pub fn acquire_events() -> RwLockReadGuard<'static, Events> {
-    EVENTS.read().unwrap()
-}
-
-fn acquire_events_mut() -> RwLockWriteGuard<'static, Events> {
-    EVENTS.write().unwrap()
+pub fn acquire_bucket() -> RwLockReadGuard<'static, Bucket> {
+    BUCKET.read().unwrap()
 }
 
 pub fn run() {
@@ -95,19 +42,7 @@ pub fn run() {
 }
 
 fn init_bookies() -> Vec<Bookie> {
-    BOOKIES_AUTH.iter().map(|&(host, username, password)| {
-        let (module, gambler) = gamblers::new(host);
-
-        Bookie {
-            host: host.to_owned(),
-            active: AtomicBool::new(false),
-            balance: AtomicIsize::new(0),
-            username: username.to_owned(),
-            password: password.to_owned(),
-            module: module,
-            gambler: gambler
-        }
-    }).collect()
+    BOOKIES_AUTH.iter().map(|info| Bookie::new(info.0, info.1, info.2)).collect()
 }
 
 fn run_gambler(bookie: &'static Bookie,
@@ -184,96 +119,36 @@ fn degradation(bookie: &Bookie) {
         return;
     }
 
-    let mut events = acquire_events_mut();
-
-    let outdated = events.values()
-        .flat_map(|offers| offers.iter().filter(|o| o.0 == bookie))
-        .cloned()
-        .collect::<Vec<_>>();
-
-    info!("Regression of {}. Removing {} offers...", bookie.host, outdated.len());
-
-    for marked in outdated {
-        remove_offer(&mut events, marked);
-    }
+    let mut bucket = BUCKET.write().unwrap();
+    bucket.remove_offers_by_bookie(bookie);
 }
 
 fn process_channels(incoming: Receiver<MarkedOffer>, outgoing: Receiver<MarkedOffer>) {
     loop {
         let marked = incoming.recv().unwrap();
         let key = marked.1.clone();
-        let mut events = acquire_events_mut();
+        let mut bucket = BUCKET.write().unwrap();
 
-        update_offer(&mut events, marked);
+        bucket.update_offer(marked);
 
         while let Ok(marked) = outgoing.try_recv() {
-            remove_offer(&mut events, marked);
+            bucket.remove_offer(&marked);
         }
 
-        if let Some(event) = events.get(&key) {
-            realize_event(event);
+        if let Some(market) = bucket.get_market(&key) {
+            realize_market(market);
         }
     }
 }
 
-fn remove_offer(events: &mut Events, marked: MarkedOffer) {
-    let mut remove_event = false;
-
-    if let Some(event) = events.get_mut(&marked.1) {
-        let index = event.iter().position(|stored| stored.0 == marked.0);
-
-        if let Some(index) = index {
-            event.swap_remove(index);
-            debug!("{} by {} is removed", marked.1, marked.0.host);
-        } else {
-            warn!("There is no {} by {}", marked.1, marked.0.host);
-        }
-
-        remove_event = event.is_empty();
-    }
-
-    if remove_event {
-        debug!("Event [{} by {}] is removed", marked.1, marked.0.host);
-        events.remove(&marked.1);
-    }
-}
-
-fn update_offer(events: &mut Events, marked: MarkedOffer) {
-    if events.contains_key(&marked.1) {
-        let event = events.get_mut(&marked.1).unwrap();
-        let index = event.iter().position(|stored| stored.0 == marked.0);
-
-        if let Some(index) = index {
-            if marked.1.outcomes.len() != event[index].1.outcomes.len() {
-                error!("{} by {} is NOT updated: incorrect dimension", marked.1, marked.0.host);
-                return;
-            }
-
-            debug!("{} by {} is updated", marked.1, marked.0.host);
-            event[index] = marked;
-        } else {
-            if marked.1.outcomes.len() != event[0].1.outcomes.len() {
-                error!("{} by {} is NOT added: incorrect dimension", marked.1, marked.0.host);
-                return;
-            }
-
-            debug!("{} by {} is added", marked.1, marked.0.host);
-            event.push(marked);
-        }
-    } else {
-        debug!("Event [{} by {}] is added", marked.1, marked.0.host);
-        events.insert(marked.1.clone(), vec![marked]);
-    }
-}
-
-fn realize_event(event: &Event) {
-    if event.len() < 2 {
+fn realize_market(market: &[MarkedOffer]) {
+    if market.len() < 2 {
         return;
     }
 
-    let mut table: Vec<Vec<_>> = Vec::with_capacity(event.len());
+    let mut table: Vec<Vec<_>> = Vec::with_capacity(market.len());
 
-    for (i, marked) in event.into_iter().enumerate() {
+    for (i, marked) in market.into_iter().enumerate() {
         // We assume that sorting by coefs is reliable way to collate outcomes.
         let mut marked = sort_outcomes_by_coef(&marked.1.outcomes);
 
@@ -284,9 +159,9 @@ fn realize_event(event: &Event) {
         table.push(marked);
     }
 
-    debug!("Checking event:");
+    debug!("Checking market:");
 
-    for &MarkedOffer(bookie, ref offer) in event {
+    for &MarkedOffer(bookie, ref offer) in market {
         debug!("    {} by {}", offer, bookie.host);
     }
 
@@ -303,8 +178,8 @@ fn realize_event(event: &Event) {
 
     info!("  Opportunity exists (effective margin: {:.2}), unbiased strategy:", margin);
 
-    for &MarkedOutcome { market, outcome, rate, profit } in &outcomes {
-        let host = &event[market].0.host;
+    for &MarkedOutcome { market: m, outcome, rate, profit } in &outcomes {
+        let host = &market[m].0.host;
 
         info!("    Place {:.2} on {} by {} (coef: x{:.2}, profit: {:+.1}%)",
               rate, outcome.0, host, outcome.1, profit * 100.);
@@ -314,12 +189,12 @@ fn realize_event(event: &Event) {
     }
 
     if MIN_PROFIT <= min_profit && min_profit <= MAX_PROFIT {
-        // TODO(loyd): drop offers instead of whole events.
-        if !no_bets_on_event(event) {
+        // TODO(loyd): drop offers instead of whole bucket.
+        if !no_bets_on_market(market) {
             return;
         }
 
-        let pairs = outcomes.iter().map(|o| (&event[o.market], o)).collect::<Vec<_>>();
+        let pairs = outcomes.iter().map(|o| (&market[o.market], o)).collect::<Vec<_>>();
 
         let stakes = match distribute_currency(&pairs) {
             Some(stakes) => stakes,
@@ -359,9 +234,9 @@ fn comparative_permutation(outcomes: &mut [&Outcome], ideal: &[&Outcome]) {
     }
 }
 
-fn no_bets_on_event(event: &Event) -> bool {
+fn no_bets_on_market(market: &[MarkedOffer]) -> bool {
     // TODO(loyd): what about bulk checking?
-    !event.iter().any(|marked| combo::contains(&marked.0.host, marked.1.inner_id))
+    !market.iter().any(|marked| combo::contains(&marked.0.host, marked.1.inner_id))
 }
 
 fn distribute_currency(pairs: &[(&MarkedOffer, &MarkedOutcome)]) -> Option<Vec<Currency>> {
@@ -436,7 +311,7 @@ fn place_bets(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
         });
     }
 
-    // TODO(loyd): temporary solution, it blocks system during offer checking to prevent race.
+    // TODO(loyd): temporary solution, it blocks system during offer checking to prmarket race.
     let mut count = barrier.0.lock().unwrap();
     let start = Instant::now();
 
