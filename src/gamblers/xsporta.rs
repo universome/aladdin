@@ -220,6 +220,7 @@ fn grab_offers(message: Message) -> Result<Vec<Offer>> {
             "Star" => Kind::StarCraft2(StarCraft2::Series),
             "Worl" => Kind::WorldOfTanks(WorldOfTanks::Series),
             _ if champ.contains("StarCraft") => Kind::StarCraft2(StarCraft2::Series),
+            "WarC" => return None,
             _ => {
                 warn!("Unknown kind: {}", info.ChampEng);
                 return None;
