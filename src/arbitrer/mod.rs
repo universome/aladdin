@@ -9,14 +9,16 @@ use constants::{RETRY_DELAY, CHECK_TIMEOUT, BASE_STAKE, MAX_STAKE, MIN_PROFIT, M
 use constants::BOOKIES_AUTH;
 use base::currency::Currency;
 use events::{Offer, Outcome, DRAW, fuzzy_eq};
-use opportunity::{self, Strategy, MarkedOutcome};
 use combo::{self, Combo, Bet};
 
 pub use self::bookie::{Bookie, MarkedOffer};
 pub use self::bucket::Bucket;
 
+use self::opportunity::{Strategy, MarkedOutcome};
+
 mod bookie;
 mod bucket;
+mod opportunity;
 
 lazy_static! {
     pub static ref BOOKIES: Vec<Bookie> = init_bookies();

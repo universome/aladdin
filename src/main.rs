@@ -27,7 +27,6 @@ mod constants;
 mod base;
 mod events;
 mod gamblers;
-mod opportunity;
 mod arbitrer;
 mod server;
 mod combo;
