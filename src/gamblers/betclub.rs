@@ -282,6 +282,7 @@ fn get_offer(event: &Event) -> Option<Offer> {
         "StarCraft II" => Kind::StarCraft2(StarCraft2::Series),
         "Counter-Strike" => Kind::CounterStrike(CounterStrike::Series),
         "Heroes Of The Storm" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
+        "Hearthstone" => Kind::Hearthstone(Hearthstone::Series),
         "League of Legends" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
         "Overwatch" => Kind::Overwatch(Overwatch::Series),
         "World of Tanks" => Kind::WorldOfTanks(WorldOfTanks::Series),
