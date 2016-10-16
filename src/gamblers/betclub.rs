@@ -10,8 +10,7 @@ use base::session::Session;
 use base::timers::Periodic;
 use base::currency::Currency;
 use gamblers::Gambler;
-use events::{OID, Offer, Outcome, Kind, DRAW};
-use events::kinds::*;
+use events::{OID, Offer, Outcome, Game, Kind, DRAW};
 
 pub struct BetClub {
     session: Session,
@@ -277,15 +276,15 @@ fn get_offer(event: &Event) -> Option<Offer> {
         None => return None
     };
 
-    let kind = match event.CountryName.as_ref() {
-        "Dota II" => Kind::Dota2(Dota2::Series),
-        "StarCraft II" => Kind::StarCraft2(StarCraft2::Series),
-        "Counter-Strike" => Kind::CounterStrike(CounterStrike::Series),
-        "Heroes Of The Storm" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
-        "Hearthstone" => Kind::Hearthstone(Hearthstone::Series),
-        "League of Legends" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
-        "Overwatch" => Kind::Overwatch(Overwatch::Series),
-        "World of Tanks" => Kind::WorldOfTanks(WorldOfTanks::Series),
+    let game = match event.CountryName.as_ref() {
+        "Dota II" => Game::Dota2,
+        "StarCraft II" => Game::StarCraft2,
+        "Counter-Strike" => Game::CounterStrike,
+        "Heroes Of The Storm" => Game::HeroesOfTheStorm,
+        "Hearthstone" => Game::Hearthstone,
+        "League of Legends" => Game::LeagueOfLegends,
+        "Overwatch" => Game::Overwatch,
+        "World of Tanks" => Game::WorldOfTanks,
         unsupported_type => {
             warn!("Found new type: {}", unsupported_type);
             return None;
@@ -304,7 +303,8 @@ fn get_offer(event: &Event) -> Option<Offer> {
     Some(Offer {
         oid: event.Id as OID,
         outcomes: outcomes,
-        kind: kind,
+        game: game,
+        kind: Kind::Series,
         date: date
     })
 }

@@ -9,6 +9,7 @@ pub type OID = u64;
 pub struct Offer {
     pub oid: OID,
     pub date: u32,
+    pub game: Game,
     pub kind: Kind,
     pub outcomes: Vec<Outcome>
 }
@@ -19,57 +20,24 @@ pub struct Outcome(pub String, pub f64);
 pub static DRAW: &str = "(draw)";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Kind {
-    CounterStrike(kinds::CounterStrike),
-    CrossFire(kinds::CrossFire),
-    Dota2(kinds::Dota2),
-    Halo(kinds::Halo),
-    Hearthstone(kinds::Hearthstone),
-    HeroesOfTheStorm(kinds::HeroesOfTheStorm),
-    LeagueOfLegends(kinds::LeagueOfLegends),
-    Overwatch(kinds::Overwatch),
-    Smite(kinds::Smite),
-    StarCraft2(kinds::StarCraft2),
-    Vainglory(kinds::Vainglory),
-    WorldOfTanks(kinds::WorldOfTanks)
+pub enum Game {
+    CounterStrike,
+    CrossFire,
+    Dota2,
+    Halo,
+    Hearthstone,
+    HeroesOfTheStorm,
+    LeagueOfLegends,
+    Overwatch,
+    Smite,
+    StarCraft2,
+    Vainglory,
+    WorldOfTanks
 }
 
-pub mod kinds {
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum CounterStrike { Series }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum CrossFire { Series }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum Dota2 { Series }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum Halo { Series }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum Hearthstone { Series }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum HeroesOfTheStorm { Series }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum LeagueOfLegends { Series }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum Overwatch { Series }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum Smite { Series }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum StarCraft2 { Series }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum Vainglory { Series }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum WorldOfTanks { Series }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Kind {
+    Series
 }
 
 impl Display for Offer {

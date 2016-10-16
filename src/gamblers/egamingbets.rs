@@ -13,8 +13,7 @@ use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
 use base::currency::Currency;
 use gamblers::Gambler;
-use events::{OID, Offer, Outcome, DRAW, Kind};
-use events::kinds::*;
+use events::{OID, Offer, Outcome, DRAW, Game, Kind};
 
 pub struct EGB {
     session: Session,
@@ -266,18 +265,18 @@ fn extract_offer(bet: Bet) -> Result<Option<Offer>> {
         return Ok(None);
     }
 
-    let kind = match bet.game.as_ref() {
-        "Counter-Strike" => Kind::CounterStrike(CounterStrike::Series),
-        "Dota2" => Kind::Dota2(Dota2::Series),
-        "Hearthstone" => Kind::Hearthstone(Hearthstone::Series),
-        "HeroesOfTheStorm" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
-        "LoL" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
-        "Overwatch" => Kind::Overwatch(Overwatch::Series),
-        "Smite" => Kind::Smite(Smite::Series),
-        "StarCraft2" => Kind::StarCraft2(StarCraft2::Series),
-        "WorldOfTanks" => Kind::WorldOfTanks(WorldOfTanks::Series),
-        kind => {
-            warn!("Unknown kind: {}", kind);
+    let game = match bet.game.as_ref() {
+        "Counter-Strike" => Game::CounterStrike,
+        "Dota2" => Game::Dota2,
+        "Hearthstone" => Game::Hearthstone,
+        "HeroesOfTheStorm" => Game::HeroesOfTheStorm,
+        "LoL" => Game::LeagueOfLegends,
+        "Overwatch" => Game::Overwatch,
+        "Smite" => Game::Smite,
+        "StarCraft2" => Game::StarCraft2,
+        "WorldOfTanks" => Game::WorldOfTanks,
+        game => {
+            warn!("Unknown game: {}", game);
             return Ok(None);
         }
     };
@@ -298,7 +297,8 @@ fn extract_offer(bet: Bet) -> Result<Option<Offer>> {
     Ok(Some(Offer {
         oid: bet.id as OID,
         date: bet.date,
-        kind: kind,
+        game: game,
+        kind: Kind::Series,
         outcomes: outcomes
     }))
 }

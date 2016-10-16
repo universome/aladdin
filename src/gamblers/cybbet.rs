@@ -13,8 +13,7 @@ use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
 use base::currency::Currency;
 use gamblers::Gambler;
-use events::{Offer, Outcome, DRAW, Kind};
-use events::kinds::*;
+use events::{Offer, Outcome, DRAW, Game, Kind};
 
 // The site uses 1-minute period, but for us it's too long.
 const PERIOD: u32 = 30;
@@ -101,7 +100,7 @@ impl Gambler for CybBet {
 
         for _ in Periodic::new(PERIOD) {
             // Collect all active offers and send them.
-            let request = table.values().map(Game::from).collect::<Vec<_>>();
+            let request = table.values().map(CGame::from).collect::<Vec<_>>();
 
             let response = try!(self.session.post_form("/games/getCurrentKoef", &[
                 ("request", &try!(json::to_string(&request)))
@@ -210,7 +209,7 @@ struct CurrentKoef {
 }
 
 #[derive(Serialize)]
-struct Game {
+struct CGame {
     idGame: u32,
     team1: f64,
     team2: f64,
@@ -218,9 +217,9 @@ struct Game {
     gameStart: u32
 }
 
-impl<'a> From<&'a Offer> for Game {
-    fn from(offer: &'a Offer) -> Game {
-        Game {
+impl<'a> From<&'a Offer> for CGame {
+    fn from(offer: &'a Offer) -> CGame {
+        CGame {
             idGame: offer.oid as u32,
             team1: offer.outcomes[0].1,
             team2: offer.outcomes[1].1,
@@ -244,20 +243,20 @@ fn extract_offers(html: NodeRef) -> Result<Vec<Offer>> {
             continue;
         }
 
-        let kind = match kind_class {
-            "csgo" => Kind::CounterStrike(CounterStrike::Series),
-            "dota2" => Kind::Dota2(Dota2::Series),
-            "hearthstone" => Kind::Hearthstone(Hearthstone::Series),
-            "heroesofthestorm" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
-            "lol" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
-            "ovw" => Kind::Overwatch(Overwatch::Series),
-            "smite" => Kind::Smite(Smite::Series),
-            "starcraft2" => Kind::StarCraft2(StarCraft2::Series),
-            "VG" => Kind::Vainglory(Vainglory::Series),
-            "wot" => Kind::WorldOfTanks(WorldOfTanks::Series),
+        let game = match kind_class {
+            "csgo" => Game::CounterStrike,
+            "dota2" =>Game::Dota2,
+            "hearthstone" => Game::Hearthstone,
+            "heroesofthestorm" => Game::HeroesOfTheStorm,
+            "lol" => Game::LeagueOfLegends,
+            "ovw" => Game::Overwatch,
+            "smite" => Game::Smite,
+            "starcraft2" => Game::StarCraft2,
+            "VG" => Game::Vainglory,
+            "wot" => Game::WorldOfTanks,
             "cod" | "warcraft3" | "warcraft" | "wc3" => continue,
             class => {
-                warn!("Unknown kind: {}", class);
+                warn!("Unknown game: {}", class);
                 continue;
             }
         };
@@ -288,7 +287,8 @@ fn extract_offers(html: NodeRef) -> Result<Vec<Offer>> {
         offers.push(Offer {
             oid: try!(id.parse()),
             date: try!(date.parse()),
-            kind: kind,
+            game: game,
+            kind: Kind::Series,
             outcomes: outcomes
         })
     }

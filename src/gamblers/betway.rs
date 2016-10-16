@@ -16,8 +16,7 @@ use base::session::Session;
 use base::currency::Currency;
 use base::websocket::Connection as Connection;
 use gamblers::Gambler;
-use events::{OID, Offer, Outcome, DRAW, Kind};
-use events::kinds::*;
+use events::{OID, Offer, Outcome, DRAW, Game, Kind};
 
 pub struct BetWay {
     session: Session,
@@ -441,55 +440,54 @@ fn extract_events_ids(page: NodeRef) -> Result<Vec<u32>> {
 // TODO(universome): We should return vec of possible offers.
 fn create_offer_from_event(event: &Event) -> Result<Option<Offer>> {
     let ts = try!(time::strptime(&event.startAt, "%Y-%m-%dT%H:%M:%SZ")).to_timespec();
-    let kind = get_kind_from_event(event);
+    let game_and_kind = get_game_and_kind(event);
     let outcomes = get_outcomes_from_event(event);
 
-    if kind.is_none() || outcomes.is_none() || !event.active {
+    if game_and_kind.is_none() || outcomes.is_none() || !event.active {
         return Ok(None);
     }
+
+    let (game, kind) = game_and_kind.unwrap();
 
     Ok(Some(Offer {
         oid: event.eventId as OID,
         date: ts.sec as u32,
-        kind: kind.unwrap(),
+        game: game,
+        kind: kind,
         outcomes: outcomes.unwrap()
     }))
 }
 
 fn create_dummy_offer_from_event(event: &Event) -> Result<Offer> {
     let ts = try!(time::strptime(&event.startAt, "%Y-%m-%dT%H:%M:%SZ")).to_timespec();
-    let kind = get_kind_from_event(event);
+    let (game, kind) = get_game_and_kind(event).unwrap();
 
     Ok(Offer {
         oid: event.eventId as OID,
         date: ts.sec as u32,
-        kind: kind.unwrap(),
+        game: game,
+        kind: kind,
         outcomes: Vec::new()
     })
 }
 
-fn get_kind_from_event(event: &Event) -> Option<Kind> {
-    for keyword in event.keywords.iter() {
-        if keyword.typeCname == "country" {
-            return Some(match keyword.cname.as_ref() {
-                "cs-go" => Kind::CounterStrike(CounterStrike::Series),
-                "dota-2" => Kind::Dota2(Dota2::Series),
-                "league-of-legends" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
-                "hearthstone" => Kind::Hearthstone(Hearthstone::Series),
-                "heroes-of-the-storm" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
-                "overwatch" => Kind::Overwatch(Overwatch::Series),
-                "starcraft-2" => Kind::StarCraft2(StarCraft2::Series),
-                "world-of-tanks" => Kind::WorldOfTanks(WorldOfTanks::Series),
-                kind => {
-                    warn!("Found new category: {:?}", kind);
-
-                    return None;
-                }
-            })
-        }
-    }
-
-    None
+fn get_game_and_kind(event: &Event) -> Option<(Game, Kind)> {
+    event.keywords.iter()
+        .find(|kw| kw.typeCname == "country")
+        .and_then(|kw| Some((match kw.cname.as_ref() {
+            "cs-go" => Game::CounterStrike,
+            "dota-2" => Game::Dota2,
+            "league-of-legends" => Game::LeagueOfLegends,
+            "hearthstone" => Game::Hearthstone,
+            "heroes-of-the-storm" => Game::HeroesOfTheStorm,
+            "overwatch" => Game::Overwatch,
+            "starcraft-2" => Game::StarCraft2,
+            "world-of-tanks" => Game::WorldOfTanks,
+            game => {
+                warn!("Found new category: {:?}", game);
+                return None;
+            }
+        }, Kind::Series)))
 }
 
 fn get_good_market_id(event: &Event) -> Option<u32> {
