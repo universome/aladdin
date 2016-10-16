@@ -192,10 +192,10 @@ fn render_bucket(b: &mut String, bucket: &Bucket) {
             writeln!(b, "|{}", iter::repeat("---|").take(outcome_count + 3).collect::<String>());
 
             for &MarkedOffer(bookie, ref offer) in event {
-                write!(b, "|`{date}`|{host}|#{inner_id}|",
+                write!(b, "|`{date}`|{host}|#{oid}|",
                        date = format_date(offer.date, "%d/%m %R"),
                        host = bookie.host,
-                       inner_id = offer.inner_id);
+                       oid = offer.oid);
 
                 for outcome in &offer.outcomes {
                     write!(b, "{outcome} `{odds:.2}`|",

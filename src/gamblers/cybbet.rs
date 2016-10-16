@@ -54,7 +54,7 @@ impl CybBet {
             "express": [],
             "expressGame": []
         }}"#,
-            id = offer.inner_id,
+            id = offer.oid,
             result = result,
             coef = outcome.1,
             stake = stake);
@@ -95,7 +95,7 @@ impl Gambler for CybBet {
         let mut table = HashMap::new();
 
         for offer in offers {
-            table.insert(offer.inner_id as u32, offer.clone());
+            table.insert(offer.oid as u32, offer.clone());
             cb(offer, true);
         }
 
@@ -221,7 +221,7 @@ struct Game {
 impl<'a> From<&'a Offer> for Game {
     fn from(offer: &'a Offer) -> Game {
         Game {
-            idGame: offer.inner_id as u32,
+            idGame: offer.oid as u32,
             team1: offer.outcomes[0].1,
             team2: offer.outcomes[1].1,
             draw: offer.outcomes.get(2).map(|o| o.1),
@@ -286,10 +286,10 @@ fn extract_offers(html: NodeRef) -> Result<Vec<Offer>> {
         }
 
         offers.push(Offer {
+            oid: try!(id.parse()),
             date: try!(date.parse()),
             kind: kind,
-            outcomes: outcomes,
-            inner_id: try!(id.parse())
+            outcomes: outcomes
         })
     }
 

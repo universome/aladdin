@@ -16,8 +16,7 @@ use base::session::Session;
 use base::currency::Currency;
 use base::websocket::Connection as Connection;
 use gamblers::Gambler;
-use events::{Offer, DRAW, Kind};
-use events::Outcome as Outcome;
+use events::{OID, Offer, Outcome, DRAW, Kind};
 use events::kinds::*;
 
 pub struct BetWay {
@@ -176,7 +175,7 @@ impl Gambler for BetWay {
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
         let state = self.state.lock().unwrap();
-        let ref event = state.events.get(&(offer.inner_id as u32)).unwrap();
+        let ref event = state.events.get(&(offer.oid as u32)).unwrap();
         let market_id = get_good_market_id(&event).unwrap();
         let market = event.markets.iter().find(|m| m.marketId == market_id).unwrap();
         let outcome = market.outcomes.iter().find(|o| o.get_title() == outcome.0).unwrap();
@@ -450,7 +449,7 @@ fn create_offer_from_event(event: &Event) -> Result<Option<Offer>> {
     }
 
     Ok(Some(Offer {
-        inner_id: event.eventId as u64,
+        oid: event.eventId as OID,
         date: ts.sec as u32,
         kind: kind.unwrap(),
         outcomes: outcomes.unwrap()
@@ -462,7 +461,7 @@ fn create_dummy_offer_from_event(event: &Event) -> Result<Offer> {
     let kind = get_kind_from_event(event);
 
     Ok(Offer {
-        inner_id: event.eventId as u64,
+        oid: event.eventId as OID,
         date: ts.sec as u32,
         kind: kind.unwrap(),
         outcomes: Vec::new()

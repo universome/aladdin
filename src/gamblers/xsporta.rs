@@ -9,7 +9,7 @@ use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
 use base::currency::Currency;
 use gamblers::Gambler;
-use events::{Offer, Outcome, DRAW, Kind};
+use events::{OID, Offer, Outcome, DRAW, Kind};
 use events::kinds::*;
 
 pub struct XBet {
@@ -66,7 +66,7 @@ impl Gambler for XBet {
             let offers = try!(grab_offers(message));
 
             let active = offers.iter()
-                .map(|o| o.inner_id)
+                .map(|o| o.oid)
                 .collect::<HashSet<_>>();
 
             // Remove redundant offers.
@@ -82,19 +82,19 @@ impl Gambler for XBet {
 
             // Add/update offers.
             for offer in offers {
-                if map.contains_key(&offer.inner_id) {
-                    if offer == map[&offer.inner_id] {
-                        if map[&offer.inner_id].outcomes != offer.outcomes {
+                if map.contains_key(&offer.oid) {
+                    if offer == map[&offer.oid] {
+                        if map[&offer.oid].outcomes != offer.outcomes {
                             cb(offer, true);
                         }
 
                         continue;
                     } else {
-                        cb(map.remove(&offer.inner_id).unwrap(), false);
+                        cb(map.remove(&offer.oid).unwrap(), false);
                     }
                 }
 
-                map.insert(offer.inner_id, offer.clone());
+                map.insert(offer.oid, offer.clone());
                 cb(offer, true);
             }
         }
@@ -117,7 +117,7 @@ impl Gambler for XBet {
         let request = PlaceBetRequest {
             Events: vec![
                 PlaceBetRequestEvent {
-                    GameId: offer.inner_id as u32,
+                    GameId: offer.oid as u32,
                     Coef: outcome.1,
                     Kind: 3,
                     Type: result
@@ -143,7 +143,7 @@ impl Gambler for XBet {
         let message = try!(self.session.get_json::<Message>(path));
 
         Ok(try!(grab_offers(message)).into_iter()
-            .find(|actual| actual.inner_id == offer.inner_id)
+            .find(|actual| actual.oid == offer.oid)
             .map_or(true, |actual| &actual == offer && actual.outcomes == offer.outcomes))
     }
 }
@@ -241,10 +241,10 @@ fn grab_offers(message: Message) -> Result<Vec<Offer>> {
         }
 
         Some(Offer {
+            oid: id as OID,
             date: date,
             kind: kind,
-            outcomes: outcomes,
-            inner_id: id as u64
+            outcomes: outcomes
         })
     }).collect();
 

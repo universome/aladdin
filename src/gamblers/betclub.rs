@@ -10,7 +10,7 @@ use base::session::Session;
 use base::timers::Periodic;
 use base::currency::Currency;
 use gamblers::Gambler;
-use events::{Offer, Outcome, Kind, DRAW};
+use events::{OID, Offer, Outcome, Kind, DRAW};
 use events::kinds::*;
 
 pub struct BetClub {
@@ -72,7 +72,7 @@ impl Gambler for BetClub {
             state.events = try!(self.fetch_events());
 
             let fresh_offers: Vec<_> = state.events.iter().filter_map(get_offer).collect();
-            let fresh_ids: HashSet<_> = fresh_offers.iter().map(|o| o.inner_id).collect();
+            let fresh_ids: HashSet<_> = fresh_offers.iter().map(|o| o.oid).collect();
 
             // Remove outdated offers
             let outdated_ids: HashSet<_> = state.offers.keys()
@@ -87,14 +87,14 @@ impl Gambler for BetClub {
 
             // Gather new offers
             for fresh_offer in fresh_offers {
-                if let Some(offer) = state.offers.get(&fresh_offer.inner_id) {
+                if let Some(offer) = state.offers.get(&fresh_offer.oid) {
                     if offer == &fresh_offer && offer.date == fresh_offer.date {
                         continue; // It's just the same offer :(
                     }
                 }
 
                 cb(fresh_offer.clone(), true);
-                state.offers.insert(fresh_offer.inner_id, fresh_offer);
+                state.offers.insert(fresh_offer.oid, fresh_offer);
             }
         }
 
@@ -103,7 +103,7 @@ impl Gambler for BetClub {
 
     fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
         let current_events = try!(self.fetch_events());
-        let event = current_events.iter().find(|e| e.Id == offer.inner_id as u32).unwrap();
+        let event = current_events.iter().find(|e| e.Id == offer.oid as u32).unwrap();
 
         match get_offer(event) {
             Some(offer) => Ok(offer.outcomes.into_iter().find(|o| o == outcome).is_some()),
@@ -114,7 +114,7 @@ impl Gambler for BetClub {
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
         let stake: f64 = stake.into();
         let state = try!(self.state.lock());
-        let event = state.events.iter().find(|e| e.Id == offer.inner_id as u32).unwrap();
+        let event = state.events.iter().find(|e| e.Id == offer.oid as u32).unwrap();
         let market = event.get_market().unwrap();
 
         let basket = if outcome.0 == event.TeamsGroup[0] { &market.Rates[0].AddToBasket }
@@ -302,7 +302,7 @@ fn get_offer(event: &Event) -> Option<Offer> {
         };
 
     Some(Offer {
-        inner_id: event.Id as u64,
+        oid: event.Id as OID,
         outcomes: outcomes,
         kind: kind,
         date: date

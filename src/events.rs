@@ -3,12 +3,14 @@ use std::fmt::{Display, Formatter};
 use std::fmt::Result as FmtResult;
 use time;
 
+pub type OID = u64;
+
 #[derive(Debug, Clone)]
 pub struct Offer {
+    pub oid: OID,
     pub date: u32,
     pub kind: Kind,
-    pub outcomes: Vec<Outcome>,
-    pub inner_id: u64
+    pub outcomes: Vec<Outcome>
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,7 +77,7 @@ impl Display for Offer {
         let tm = time::at_utc(time::Timespec::new(self.date as i64, 0)).to_local();
         let date = tm.strftime("%d/%m %R").unwrap();
 
-        try!(write!(f, "{} {:?} #{} (", date, self.kind, self.inner_id));
+        try!(write!(f, "{} {:?} #{} (", date, self.kind, self.oid));
 
         for (idx, outcome) in self.outcomes.iter().enumerate() {
             try!(write!(f, "{}{} x{}", if idx > 0 { "|" } else { "" }, outcome.0, outcome.1));

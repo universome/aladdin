@@ -13,7 +13,7 @@ use base::timers::Periodic;
 use base::error::{Result, Error};
 use base::session::Session;
 use gamblers::Gambler;
-use events::{Offer, Outcome, Kind, DRAW};
+use events::{OID, Offer, Outcome, Kind, DRAW};
 use events::kinds::*;
 
 use self::PollingMessage as PM;
@@ -134,9 +134,9 @@ impl Gambler for VitalBet {
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
         let state = &*try!(self.state.lock());
-        let match_ = match state.matches.get(&(offer.inner_id as u32)) {
+        let match_ = match state.matches.get(&(offer.oid as u32)) {
             Some(m) => m,
-            None => return Err(Error::from("Match with provided offer.inner_id is not found"))
+            None => return Err(Error::from("Match with provided oid is not found"))
         };
         let outcome_id = match match_.PreviewOdds {
             Some(ref odds) => match odds.iter().find(|o| o.Title == outcome.0) {
@@ -401,10 +401,10 @@ fn convert_match_into_offer(match_: &Match) -> Result<Option<Offer>> {
     let ts = try!(time::strptime(&match_.DateOfMatch, "%Y-%m-%dT%H:%M:%S")).to_timespec();
 
     Ok(Some(Offer {
+        oid: match_.ID as OID,
         date: ts.sec as u32,
         kind: kind.unwrap(),
-        outcomes: odds,
-        inner_id: match_.ID as u64
+        outcomes: odds
     }))
 }
 
@@ -519,7 +519,7 @@ fn apply_match_update(state: &mut State, match_update: Match) -> Result<()> {
 fn provide_offers(state: &mut State, cb: &Fn(Offer, bool)) -> Result<()> {
     for updated_match_id in state.changed_matches.drain() {
         if let Some(offer) = try!(convert_match_into_offer(&state.matches[&updated_match_id])) {
-            state.offers.insert(offer.inner_id as u32, offer.clone());
+            state.offers.insert(offer.oid as u32, offer.clone());
 
             cb(offer, true);
         } else {

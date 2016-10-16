@@ -13,7 +13,7 @@ use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
 use base::currency::Currency;
 use gamblers::Gambler;
-use events::{Offer, Outcome, DRAW, Kind};
+use events::{OID, Offer, Outcome, DRAW, Kind};
 use events::kinds::*;
 
 pub struct EGB {
@@ -166,7 +166,7 @@ impl Gambler for EGB {
         let csrf = self.csrf.lock().unwrap();
 
         let response = try!(self.session.post_form("/bets", &[
-            ("bet[id]", &offer.inner_id.to_string()),
+            ("bet[id]", &offer.oid.to_string()),
             ("bet[amount]", &stake.to_string()),
             ("bet[playmoney]", "false"),
             ("bet[coef]", &outcome.1.to_string()),
@@ -197,7 +197,7 @@ impl Gambler for EGB {
         }
 
         for bet in table.bets.unwrap() {
-            if bet.id != offer.inner_id as u32 {
+            if bet.id != offer.oid as u32 {
                 continue;
             }
 
@@ -296,9 +296,9 @@ fn extract_offer(bet: Bet) -> Result<Option<Offer>> {
     }
 
     Ok(Some(Offer {
+        oid: bet.id as OID,
         date: bet.date,
         kind: kind,
-        outcomes: outcomes,
-        inner_id: bet.id as u64
+        outcomes: outcomes
     }))
 }

@@ -238,7 +238,7 @@ fn comparative_permutation(outcomes: &mut [&Outcome], ideal: &[&Outcome]) {
 
 fn no_bets_on_market(market: &[MarkedOffer]) -> bool {
     // TODO(loyd): what about bulk checking?
-    !market.iter().any(|marked| combo::contains(&marked.0.host, marked.1.inner_id))
+    !market.iter().any(|marked| combo::contains(&marked.0.host, marked.1.oid))
 }
 
 fn distribute_currency(pairs: &[(&MarkedOffer, &MarkedOutcome)]) -> Option<Vec<Currency>> {
@@ -284,7 +284,7 @@ fn save_combo(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
         kind: format!("{:?}", (pairs[0].0).1.kind),
         bets: pairs.iter().zip(stakes.iter()).map(|(&(m, o), stake)| Bet {
             host: m.0.host.clone(),
-            id: m.1.inner_id,
+            id: m.1.oid,
             title: if o.outcome.0 == DRAW { None } else { Some(o.outcome.0.clone()) },
             expiry: m.1.date,
             coef: o.outcome.1,
@@ -392,7 +392,7 @@ fn place_bet(bookie: &Bookie, offer: Offer, outcome: Outcome, stake: Currency,
 
     drop(count);
 
-    let inner_id = offer.inner_id;
+    let oid = offer.oid;
 
     if cfg!(feature = "place-bets") {
         if let Err(error) = bookie.gambler.place_bet(offer, outcome, stake) {
@@ -403,7 +403,7 @@ fn place_bet(bookie: &Bookie, offer: Offer, outcome: Outcome, stake: Currency,
         guard.hold = None;
     }
 
-    combo::mark_as_placed(&bookie.host, inner_id);
+    combo::mark_as_placed(&bookie.host, oid);
 
     if let Err(error) = bookie.gambler.check_balance().map(|b| bookie.set_balance(b)) {
         error!(target: bookie.module, "While checking balance: {}", error);
