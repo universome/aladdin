@@ -255,7 +255,7 @@ fn extract_offers(html: NodeRef) -> Result<Vec<Offer>> {
             "starcraft2" => Kind::StarCraft2(StarCraft2::Series),
             "VG" => Kind::Vainglory(Vainglory::Series),
             "wot" => Kind::WorldOfTanks(WorldOfTanks::Series),
-            "cod" => continue,
+            "cod" | "warcraft3" | "warcraft" | "wc3" => continue,
             class => {
                 warn!("Unknown kind: {}", class);
                 continue;
