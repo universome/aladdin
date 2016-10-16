@@ -1,6 +1,6 @@
 use base::error::Result;
 use base::currency::Currency;
-use events::{Offer, Outcome};
+use markets::{Offer, Outcome};
 
 mod egamingbets;
 mod vitalbet;

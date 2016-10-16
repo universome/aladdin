@@ -25,7 +25,7 @@ use std::thread;
 
 mod constants;
 mod base;
-mod events;
+mod markets;
 mod gamblers;
 mod arbitrer;
 mod server;

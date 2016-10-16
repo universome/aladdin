@@ -8,7 +8,7 @@ use time;
 use constants::{RETRY_DELAY, CHECK_TIMEOUT, BASE_STAKE, MAX_STAKE, MIN_PROFIT, MAX_PROFIT};
 use constants::BOOKIES_AUTH;
 use base::currency::Currency;
-use events::{Offer, Outcome, DRAW, fuzzy_eq};
+use markets::{Offer, Outcome, DRAW, fuzzy_eq};
 use combo::{self, Combo, Bet};
 
 pub use self::bookie::{Bookie, MarkedOffer};

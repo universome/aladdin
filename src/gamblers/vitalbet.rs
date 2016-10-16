@@ -13,7 +13,7 @@ use base::timers::Periodic;
 use base::error::{Result, Error};
 use base::session::Session;
 use gamblers::Gambler;
-use events::{OID, Offer, Outcome, Game, Kind, DRAW};
+use markets::{OID, Offer, Outcome, Game, Kind, DRAW};
 
 use self::PollingMessage as PM;
 

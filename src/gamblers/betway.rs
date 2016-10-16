@@ -16,7 +16,7 @@ use base::session::Session;
 use base::currency::Currency;
 use base::websocket::Connection as Connection;
 use gamblers::Gambler;
-use events::{OID, Offer, Outcome, DRAW, Game, Kind};
+use markets::{OID, Offer, Outcome, DRAW, Game, Kind};
 
 pub struct BetWay {
     session: Session,

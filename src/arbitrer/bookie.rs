@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering::Relaxed;
 
 use base::currency::Currency;
 use gamblers::{self, BoxedGambler};
-use events::Offer;
+use markets::Offer;
 
 #[derive(Clone)]
 pub struct MarkedOffer(pub &'static Bookie, pub Offer);

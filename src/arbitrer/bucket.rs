@@ -1,7 +1,7 @@
 use std::ops::Deref;
 use std::collections::HashMap;
 
-use events::Offer;
+use markets::Offer;
 use arbitrer::{Bookie, MarkedOffer};
 
 pub struct Bucket(HashMap<Offer, Vec<MarkedOffer>>);

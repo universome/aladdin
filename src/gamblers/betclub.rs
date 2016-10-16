@@ -10,7 +10,7 @@ use base::session::Session;
 use base::timers::Periodic;
 use base::currency::Currency;
 use gamblers::Gambler;
-use events::{OID, Offer, Outcome, Game, Kind, DRAW};
+use markets::{OID, Offer, Outcome, Game, Kind, DRAW};
 
 pub struct BetClub {
     session: Session,

@@ -13,7 +13,7 @@ use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
 use base::currency::Currency;
 use gamblers::Gambler;
-use events::{OID, Offer, Outcome, DRAW, Game, Kind};
+use markets::{OID, Offer, Outcome, DRAW, Game, Kind};
 
 pub struct EGB {
     session: Session,

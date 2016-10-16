@@ -13,7 +13,7 @@ use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
 use base::currency::Currency;
 use gamblers::Gambler;
-use events::{Offer, Outcome, DRAW, Game, Kind};
+use markets::{Offer, Outcome, DRAW, Game, Kind};
 
 // The site uses 1-minute period, but for us it's too long.
 const PERIOD: u32 = 30;
