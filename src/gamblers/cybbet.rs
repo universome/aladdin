@@ -1,6 +1,5 @@
 #![allow(non_snake_case)]
 
-use std::io::Read;
 use std::collections::HashMap;
 use kuchiki::{self, NodeRef};
 use kuchiki::traits::TendrilSink;
@@ -10,7 +9,7 @@ use time;
 use base::error::{Result, Error};
 use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
-use base::session::Session;
+use base::session::{Session, Type};
 use base::currency::Currency;
 use gamblers::Gambler;
 use events::{Offer, Outcome, DRAW, Kind};
@@ -30,7 +29,7 @@ impl CybBet {
         }
     }
 
-    fn try_place_bet(&self, url: &str,
+    fn try_place_bet(&self, path: &str,
                      offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<String>
     {
         let stake: f64 = stake.into();
@@ -59,27 +58,28 @@ impl CybBet {
             coef = outcome.1,
             stake = stake);
 
-        let mut response = try!(self.session.post_form(url, &[("bets", &bets)], &[]));
+        let request = self.session.request(path).content_type(Type::Form);
+        let response: String = try!(request.post(vec![("bets", &bets)]));
 
-        let mut string = String::new();
-        try!(response.read_to_string(&mut string));
-
-        Ok(string)
+        Ok(response)
     }
 }
 
 impl Gambler for CybBet {
     fn authorize(&self, username: &str, password: &str) -> Result<()> {
-        self.session.post_form("/user/login", &[
-            ("LoginForm[username]", username),
-            ("LoginForm[password]", password),
-            ("signin_submit", "Sign In")
-        ], &[]).map(|_| ())
+        self.session.request("/user/login")
+            .content_type(Type::Form)
+            .follow_redirects(true)
+            .post::<String, _>(vec![
+                ("LoginForm[username]", username),
+                ("LoginForm[password]", password),
+                ("signin_submit", "Sign In")
+            ]).map(|_| ())
     }
 
     fn check_balance(&self) -> Result<Currency> {
-        let html = try!(self.session.get_html("/account/usercash/UpdateBlockMainUserInfo"));
-
+        let path = "/account/usercash/UpdateBlockMainUserInfo";
+        let html: NodeRef = try!(self.session.request(path).get());
         let text = try!(html.query(r#"a[href="/account/usercash/cash"]"#)).text_contents();
         let on_invalid_cash = || format!("Invalid cash: \"{}\"", text);
         let cash_str = try!(text.split(' ').next().ok_or_else(on_invalid_cash));
@@ -89,7 +89,7 @@ impl Gambler for CybBet {
     }
 
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
-        let html = try!(self.session.get_html("/"));
+        let html: NodeRef = try!(self.session.request("/").get());
         let offers = try!(extract_offers(html));
 
         let mut table = HashMap::new();
@@ -101,13 +101,10 @@ impl Gambler for CybBet {
 
         for _ in Periodic::new(PERIOD) {
             // Collect all active offers and send them.
-            let request = table.values().map(Game::from).collect::<Vec<_>>();
-
-            let response = try!(self.session.post_form("/games/getCurrentKoef", &[
-                ("request", &try!(json::to_string(&request)))
-            ], &[]));
-
-            let koef = try!(json::from_reader::<_, CurrentKoef>(response));
+            let games = table.values().map(Game::from).collect::<Vec<_>>();
+            let games = try!(json::to_string(&games));
+            let request = self.session.request("/games/getCurrentKoef").content_type(Type::Form);
+            let koef: CurrentKoef = try!(request.post(&[("request", &games)]));
 
             // Update odds.
             if let Some(games) = koef.games {
@@ -158,15 +155,12 @@ impl Gambler for CybBet {
                         continue;
                     }
 
-                    let mut response = try!(self.session.post_form("/games/addNewGame", &[
-                        ("idGame", &id.to_string())
-                    ], &[]));
+                    let response: String = try!(self.session.request("/games/addNewGame")
+                        .content_type(Type::Form)
+                        .post(&[("idGame", &id.to_string())]));
 
                     // Fix invalid markup to parse this bullshit below.
-                    let mut template = String::from("<table>");
-                    try!(response.read_to_string(&mut template));
-                    template.push_str("</table>");
-
+                    let template = format!("<table>{}</table>", response);
                     let html = kuchiki::parse_html().one(template);
 
                     let mut offers = try!(extract_offers(html));

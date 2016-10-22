@@ -45,14 +45,15 @@ impl VitalBet {
         // First, we should get connection token.
         let auth_path = concat!("/signalr/negotiate?transport=longPolling&clientProtocol=1.5",
                                 "&connectionData=%5B%7B%22name%22%3A%22sporttypehub%22%7D%5D");
-        let response = try!(self.session.get_json::<PollingAuthResponse>(auth_path));
+        let response: PollingAuthResponse = try!(self.session.request(auth_path).get());
         let token = response.ConnectionToken;
         let token = utf8_percent_encode(&token, VITALBET_ENCODE_SET).collect::<String>();
 
         // We should notify them, that we are starting polling (because they do it too).
-        try!(self.session.get_raw_json(&format!(concat!("/signalr/start?transport=longPolling",
+        let start_polling_path = format!(concat!("/signalr/start?transport=longPolling",
                                  "&connectionData=%5B%7B%22name%22%3A%22sporttypehub%22%7D%5D",
-                                 "clientProtocol=1.5&connectionToken={}"), token)));
+                                 "clientProtocol=1.5&connectionToken={}"), token);
+        try!(self.session.request(&start_polling_path).get::<String>());
 
         Ok(format!(concat!("/signalr/poll?transport=longPolling&clientProtocol=1.5",
                         "&connectionData=%5B%7B%22name%22%3A%22sporttypehub%22%7D%5D",
@@ -62,7 +63,7 @@ impl VitalBet {
     fn get_all_matches(&self) -> Result<Vec<Match>> {
         let path = "/api/sportmatch/Get?sportID=2357";
 
-        self.session.get_json::<Vec<Match>>(path)
+        self.session.request(path).get()
     }
 }
 
@@ -75,19 +76,18 @@ impl Gambler for VitalBet {
             RememberMe: true
         };
 
-        self.session.post_json("/api/authorization/post", body).map(|_| ())
+        self.session.request("/api/authorization/post").post::<String, _>(body).map(|_| ())
     }
 
     fn check_balance(&self) -> Result<Currency> {
-        let balance = try!(self.session.get_json::<Balance>("/api/account"));
-        let money = balance.Balance;
+        let balance: Balance = try!(self.session.request("/api/account").get());
 
-        Ok(Currency::from(money))
+        Ok(Currency::from(balance.Balance))
     }
 
     fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
         // First of all, we should get initial page to get session cookie.
-        try!(self.session.get_html("/"));
+        try!(self.session.request("/").get());
 
         let mut timer = Periodic::new(3600);
 
@@ -125,7 +125,7 @@ impl Gambler for VitalBet {
                 try!(provide_offers(&mut *state, cb));
             }
 
-            let updates: PollingResponse = try!(self.session.get_json(&polling_path));
+            let updates: PollingResponse = try!(self.session.request(&polling_path).get());
 
             try!(apply_updates(&mut *state, updates.M));
             try!(provide_offers(&mut *state, cb));
@@ -162,8 +162,8 @@ impl Gambler for VitalBet {
             ]
         };
 
-        let response = try!(self.session.post_json("/api/betslip/place", request_data));
-        let response: PlaceBetResponse = try!(json::from_reader(response));
+        let request = self.session.request("/api/betslip/place");
+        let response: PlaceBetResponse = try!(request.post(request_data));
 
         match response.ErrorMessage {
             Some(m) => Err(Error::from(m)),

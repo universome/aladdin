@@ -4,13 +4,12 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
 use std::collections::{BinaryHeap, HashMap};
 use kuchiki::NodeRef;
-use serde_json as json;
 use time;
 
 use base::error::{Result, Error};
 use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
-use base::session::Session;
+use base::session::{Session, Type};
 use base::currency::Currency;
 use gamblers::Gambler;
 use events::{Offer, Outcome, DRAW, Kind};
@@ -36,20 +35,21 @@ impl EGB {
 
 impl Gambler for EGB {
     fn authorize(&self, username: &str, password: &str) -> Result<()> {
-        let html = try!(self.session.get_html("/"));
+        let html: NodeRef = try!(self.session.request("/").get());
         let csrf = try!(extract_csrf(html));
 
-        try!(self.session.post_form("/egb_users/sign_in", &[
-            ("utf8", "✓"),
-            ("authenticity_token", &csrf),
-            ("egb_user[name]", username),
-            ("egb_user[password]", password),
-            ("egb_user[remember_me]", "1")
-        ], &[
-            ("X-CSRF-Token", &csrf)
-        ]));
+        try!(self.session.request("/egb_users/sign_in")
+            .headers(&[("X-CSRF-Token", &csrf)])
+            .content_type(Type::Form)
+            .post::<String, _>(vec![
+                ("utf8", "✓"),
+                ("authenticity_token", &csrf),
+                ("egb_user[name]", username),
+                ("egb_user[password]", password),
+                ("egb_user[remember_me]", "1")
+            ]));
 
-        let html = try!(self.session.get_html("/tables"));
+        let html: NodeRef = try!(self.session.request("/tables").get());
         let csrf = try!(extract_csrf(html));
 
         let mut guard = self.csrf.lock().unwrap();
@@ -59,7 +59,7 @@ impl Gambler for EGB {
     }
 
     fn check_balance(&self) -> Result<Currency> {
-        let balance = try!(self.session.get_json::<Balance>("/user/info?m=1&b=1"));
+        let balance: Balance = try!(self.session.request("/user/info?m=1&b=1").get());
         let money = try!(balance.bets.parse::<f64>());
 
         Ok(Currency::from(money))
@@ -72,7 +72,7 @@ impl Gambler for EGB {
         let mut map = HashMap::new();
         let mut heap = BinaryHeap::new();
 
-        let table = try!(self.session.get_json::<Table>("/bets?st=0&ut=0&f="));
+        let table: Table = try!(self.session.request("/bets?st=0&ut=0&f=").get());
         let mut user_time = table.user_time;
         let mut update_time = 0;
 
@@ -96,7 +96,7 @@ impl Gambler for EGB {
 
         for _ in Periodic::new(period) {
             let path = format!("/bets?st={}&ut={}&fg=0&f=", user_time, update_time);
-            let table = try!(self.session.get_json::<Table>(&path));
+            let table: Table = try!(self.session.request(path.as_ref()).get());
             user_time = table.user_time;
 
             // Add/update offers.
@@ -165,18 +165,18 @@ impl Gambler for EGB {
 
         let csrf = self.csrf.lock().unwrap();
 
-        let response = try!(self.session.post_form("/bets", &[
-            ("bet[id]", &offer.inner_id.to_string()),
-            ("bet[amount]", &stake.to_string()),
-            ("bet[playmoney]", "false"),
-            ("bet[coef]", &outcome.1.to_string()),
-            ("bet[on]", &idx.to_string()),
-            ("bet[type]", "main")
-        ], &[
-            ("X-CSRF-Token", &*csrf)
-        ]));
+        let request = self.session.request("/bets")
+            .headers(&[("X-CSRF-Token", &*csrf)])
+            .content_type(Type::Form);
 
-        let response = try!(json::from_reader::<_, PlaceBetResponse>(response));
+        let response: PlaceBetResponse = try!(request.post(vec![
+            ("bet[id]", offer.inner_id.to_string().as_ref()),
+            ("bet[amount]", stake.to_string().as_ref()),
+            ("bet[playmoney]", "false"),
+            ("bet[coef]", outcome.1.to_string().as_ref()),
+            ("bet[on]", idx.to_string().as_ref()),
+            ("bet[type]", "main")
+        ]));
 
         if response.success {
             Ok(())
@@ -190,7 +190,7 @@ impl Gambler for EGB {
         let update_time = self.update_time.load(Relaxed);
 
         let path = format!("/bets?st={}&ut={}&fg=0&f=", user_time, update_time);
-        let table = try!(self.session.get_json::<Table>(&path));
+        let table: Table = try!(self.session.request(path.as_ref()).get());
 
         if table.bets.is_none() {
             return Ok(true);
