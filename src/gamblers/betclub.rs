@@ -26,7 +26,7 @@ struct State {
 impl BetClub {
     pub fn new() -> BetClub {
         BetClub {
-            session: Session::new("betclub2.com"),
+            session: Session::new("betclub3.com"),
             state: Mutex::new(State {
                 offers: HashMap::new(),
                 events: Vec::new()
