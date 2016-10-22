@@ -427,6 +427,7 @@ fn get_game_and_kind(match_: &Match) -> Option<(Game, Kind)> {
         5791 => Game::Overwatch,
         5942 => Game::Halo,
         6241 => Game::CrossFire,
+        5825 => Game::Vainglory,
         _ => {
             warn!("New category in vitalbet esports: {:?}", match_.Category);
             return None
