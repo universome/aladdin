@@ -7,7 +7,7 @@ mod vitalbet;
 mod xsporta;
 mod cybbet;
 mod betway;
-mod betclub2;
+mod betclub;
 
 pub trait Gambler {
     fn authorize(&self, username: &str, password: &str) -> Result<()>;
@@ -35,11 +35,11 @@ macro_rules! gambler_map {
 
 pub fn new(host: &str) -> (&str, BoxedGambler) {
     gambler_map!(host,
-        "egamingbets.com" => egamingbets::EGB,
-        "vitalbet.com" => vitalbet::VitalBet,
-        "1xsporta.space" => xsporta::XBet,
-        "cybbet.com" => cybbet::CybBet,
-        "betway.com" => betway::BetWay,
-        "betclub2.com" => betclub2::BetClub
+        "egamingbets" => egamingbets::EGB,
+        "vitalbet" => vitalbet::VitalBet,
+        "1xsporta" => xsporta::XBet,
+        "cybbet" => cybbet::CybBet,
+        "betway" => betway::BetWay,
+        "betclub" => betclub::BetClub
     )
 }
