@@ -23,7 +23,6 @@ pub const COMBO_COUNT: u32 = 32;
 
 
 pub const BOOKIES_AUTH: &[(&str, &str, &str)] = &[
-    ("egamingbets",  "shmaladdin",               "aladdin"),
     ("vitalbet",     "Алладин",                  "aladdin"),
     ("1xsporta",     "shmaladdin.rs@gmail.com",  "aladdin.rs"),
     ("cybbet",       "aladdin",                  "Shmaladdin42"),
