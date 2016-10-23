@@ -1,11 +1,12 @@
 use std::io::Read;
 use std::io::ErrorKind::{WouldBlock, TimedOut};
-use std::time::Duration;
+use std::time::{Duration};
+use time;
 use std::sync::Mutex;
 use url::form_urlencoded::Serializer as UrlSerializer;
 use hyper::error::{Error as HyperError, Result as HyperResult};
 use hyper::client::{Client, RedirectPolicy, Response};
-use hyper::header::{Headers, SetCookie, Cookie, UserAgent, Accept, ContentType, qitem};
+use hyper::header::{Headers, SetCookie, Cookie, UserAgent, Accept, ContentType, qitem, CookiePair};
 use kuchiki;
 use kuchiki::NodeRef;
 use kuchiki::traits::ParserExt;
@@ -59,6 +60,35 @@ impl Session {
 
         RequestBuilder::new(url, &self)
     }
+
+    pub fn set_cookies(&self, cookies: &[CookiePair]) {
+        let mut current = self.cookie.lock().unwrap();
+
+        for c in cookies {
+            let mut cookie = c.clone();
+
+            if cookie.max_age.is_some() && cookie.expires.is_none() {
+                cookie.expires = Some(time::at_utc(time::Timespec {
+                    sec: time::now().to_timespec().sec + (cookie.max_age.unwrap() as i64),
+                    nsec: 0
+                }));
+            }
+
+            let existing = current.iter().position(|x| c.name == x.name && c.domain == x.domain);
+
+            if let Some(index) = existing {
+                current[index] = cookie;
+            } else {
+                current.push(cookie);
+            }
+        }
+    }
+
+    pub fn actualize_cookies(&self) {
+        let mut cookies = self.cookie.lock().unwrap();
+
+        cookies.retain(|c| c.expires.map_or(true, |e| e > time::now()));
+    }
 }
 
 pub enum Type { Json, Form }
@@ -83,9 +113,7 @@ pub struct RequestBuilder<'a> {
 impl<'a> RequestBuilder<'a> {
     pub fn new(url: String, session: &Session) -> RequestBuilder {
         let mut headers = Headers::new();
-        let cookie = session.cookie.lock().unwrap().clone();
 
-        headers.set(cookie);
         headers.set(UserAgent(USER_AGENT.to_owned()));
         headers.set(XRequestedWith("XMLHttpRequest".to_owned()));
         headers.set(ContentType(mime!(Application/Json)));
@@ -194,24 +222,19 @@ impl<'a> RequestBuilder<'a> {
             None => client.get(&self.url)
         };
 
-        let response = try!(builder.headers(self.headers.clone()).send());
+        self.session.actualize_cookies();
+        let mut headers = self.headers.clone();
+        let cookie = self.session.cookie.lock().unwrap().clone();
+        headers.set(cookie);
+
+        let response = try!(builder.headers(headers).send());
 
         if !response.status.is_success() && !response.status.is_redirection() {
             return Ok(response);
         }
 
         if let Some(cookies) = response.headers.get::<SetCookie>() {
-            let mut stored = self.session.cookie.lock().unwrap();
-
-            for c in &cookies.0 {
-                let option = stored.iter().position(|x| c.name == x.name && c.domain == x.domain);
-
-                if let Some(index) = option {
-                    stored[index] = c.clone();
-                } else {
-                    stored.push(c.clone());
-                }
-            }
+            self.session.set_cookies(&cookies.0);
         }
 
         Ok(response)
