@@ -1,12 +1,12 @@
 #![allow(non_snake_case)]
 
 use std::collections::{HashMap, HashSet};
-use serde_json as json;
+use kuchiki::NodeRef;
 
 use base::error::{Result, Error};
 use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
-use base::session::Session;
+use base::session::{Session, Type};
 use base::currency::Currency;
 use gamblers::Gambler;
 use events::{Offer, Outcome, DRAW, Kind};
@@ -26,7 +26,7 @@ impl XBet {
 
 impl Gambler for XBet {
     fn authorize(&self, username: &str, password: &str) -> Result<()> {
-        let html = try!(self.session.get_html("/"));
+        let html: NodeRef = try!(self.session.request("/").get());
 
         let raw_auth_dv_elem = try!(html.query("#authDV"));
         let raw_auth_dv = try!(raw_auth_dv_elem.get_attr("value"));
@@ -38,17 +38,18 @@ impl Gambler for XBet {
             auth_dv.push(code as char);
         }
 
-        self.session
-            .post_form("/user/auth/", &[
-                ("authDV", &auth_dv),
+        self.session.request("/user/auth/")
+            .content_type(Type::Form)
+            .post::<String, _>(vec![
+                ("authDV", auth_dv.as_ref()),
                 ("uLogin", username),
                 ("uPassword", password)
-            ], &[])
+            ])
             .map(|_| ())
     }
 
     fn check_balance(&self) -> Result<Currency> {
-        let text = try!(self.session.get_text("/en/user/checkUserBalance.php"));
+        let text: String = try!(self.session.request("/en/user/checkUserBalance.php").get());
         let on_invalid_balance = || format!("Invalid balance: {}", text);
         let balance_str = try!(text.split(' ').next().ok_or_else(on_invalid_balance));
         let balance = try!(balance_str.parse::<f64>());
@@ -62,7 +63,7 @@ impl Gambler for XBet {
 
         // The site uses 1-minute period, but for us it's too long.
         for _ in Periodic::new(15) {
-            let message = try!(self.session.get_json::<Message>(path));
+            let message = try!(self.session.request(&path).get::<Message>());
             let offers = try!(grab_offers(message));
 
             let active = offers.iter()
@@ -114,7 +115,7 @@ impl Gambler for XBet {
         };
 
         let path = "/en/dataLineLive/put_bets_common.php";
-        let request = PlaceBetRequest {
+        let request_data = PlaceBetRequest {
             Events: vec![
                 PlaceBetRequestEvent {
                     GameId: offer.inner_id as u32,
@@ -128,8 +129,7 @@ impl Gambler for XBet {
             hash: hash
         };
 
-        let raw_response = try!(self.session.post_json(path, request));
-        let response: PlaceBetResponse = try!(json::from_reader(raw_response));
+        let response: PlaceBetResponse = try!(self.session.request(&path).post(request_data));
 
         if !response.Success {
             return Err(From::from(response.Error));
@@ -140,7 +140,7 @@ impl Gambler for XBet {
 
     fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
         let path = "/LineFeed/Get1x2?sportId=40&count=50&cnt=10&lng=en";
-        let message = try!(self.session.get_json::<Message>(path));
+        let message: Message = try!(self.session.request(path).get());
 
         Ok(try!(grab_offers(message)).into_iter()
             .find(|actual| actual.inner_id == offer.inner_id)

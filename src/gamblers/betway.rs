@@ -45,40 +45,39 @@ impl BetWay {
 
     fn get_esports_events_ids(&self) -> Result<Vec<u32>> {
         // First we should get list of leagues
-        let main_page = try!(self.session.get_html("/"));
+        let main_page: NodeRef = try!(self.session.request("/").get());
         let events_types = try!(extract_events_types(main_page));
         let path = format!("/?u=/types/{}", events_types.join("+"));
-        let response = try!(self.session.get_html(path.as_ref()));
+        let response: NodeRef = try!(self.session.request(path.as_str()).get());
 
         extract_events_ids(response)
     }
 
-    fn get_events(&self, events_ids: &Vec<u32>) -> Result<EventsResponse> {
+    fn get_events(&self, events_ids: &Vec<u32>) -> Result<Vec<Event>> {
         let path = "/emoapi/emos";
-        let request_data = EventsRequestData {
+        let body = EventsRequestData {
             eventIds: events_ids,
             lang: "en"
         };
 
-        let response = try!(self.session.post_json(path, request_data));
+        let response: EventsResponse = try!(self.session.request(path).post(body));
 
-        Ok(try!(json::from_reader(response)))
+        Ok(response.result)
     }
 
     fn get_customer_info(&self) -> Result<CustomerInfoResponse> {
-        let main_page = try!(self.session.get_raw_html("/"));
+        let main_page: String = try!(self.session.request("/").get());
         let server_id = try!(extract_server_id(&main_page).ok_or("Could not extract server_id"));
 
-        let request_data = CustomerInfoRequest {
+        let body = CustomerInfoRequest {
             serverId: server_id,
             lang: "en",
             userId: 1
         };
 
-        let response = try!(self.session.post_json("/betapi/v4/getCustomerInfo", request_data));
-        let customer_info: CustomerInfo = try!(json::from_reader(response));
+        let res: CustomerInfo = try!(self.session.request("/betapi/v4/getCustomerInfo").post(body));
 
-        Ok(customer_info.response)
+        Ok(res.response)
     }
 
     fn set_user_state(&self) -> Result<()> {
@@ -94,7 +93,7 @@ impl BetWay {
 
 impl Gambler for BetWay {
     fn authorize(&self, username: &str, password: &str) -> Result<()> {
-        let main_page = try!(self.session.get_raw_html("/"));
+        let main_page: String = try!(self.session.request("/").get());
 
         let server_id = try!(extract_server_id(&main_page).ok_or("Could not extract server_id"));
         let ip_address = try!(extract_ip_address(&main_page).ok_or("Could not extract ip_address"));
@@ -108,7 +107,7 @@ impl Gambler for BetWay {
             serverId: server_id
         };
 
-        self.session.post_json("/betapi/v4/login", body).map(|_| ())
+        self.session.request("/betapi/v4/login").post::<String, _>(body).map(|_| ())
     }
 
     fn check_balance(&self) -> Result<Currency> {
@@ -130,7 +129,7 @@ impl Gambler for BetWay {
 
             if !is_inited || timer.next_if_elapsed() {
                 let events_ids = try!(self.get_esports_events_ids());
-                let current_events = try!(self.get_events(&events_ids)).result;
+                let current_events = try!(self.get_events(&events_ids));
 
                 for event in current_events {
                     if state.events.contains_key(&event.eventId) {
@@ -213,8 +212,7 @@ impl Gambler for BetWay {
             userId: state.user_id
         };
 
-        let response = try!(self.session.post_json(path, request_data));
-        let response: InitiateBetResponse = try!(json::from_reader(response));
+        let response: InitiateBetResponse = try!(self.session.request(path).post(request_data));
 
         if !response.success || response.response.is_none() {
             return Err(Error::from(format!("Initiating bet failed: {:?}", response)));
@@ -227,8 +225,7 @@ impl Gambler for BetWay {
             serverId: state.server_id
         };
 
-        let response = try!(self.session.post_json(path, request_data));
-        let response: PlaceBetResponse = try!(json::from_reader(response));
+        let response: PlaceBetResponse = try!(self.session.request(path).post(request_data));
 
         if !response.success || response.error.is_some() {
             return Err(Error::from(format!("Placing bet failed: {:?}", response)));

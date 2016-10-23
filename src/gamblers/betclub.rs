@@ -1,9 +1,7 @@
 #![allow(non_snake_case)]
 
-use std::io::Read;
 use std::sync::Mutex;
 use std::collections::{HashMap, HashSet};
-use serde_json as json;
 
 use base::error::{Result};
 use base::session::Session;
@@ -38,10 +36,9 @@ impl BetClub {
         let path = "/WebServices/BRService.asmx/GetTournamentEventsBySportByDuration";
         let body = EventsRequest {culture: "en-us", sportId: 300, countHours: "12"};
 
-        let response = try!(self.session.post_json(path, &body));
-        let tournaments = try!(json::from_reader::<_, TournamentsResponse>(response)).d;
+        let response: TournamentsResponse = try!(self.session.request(path).post(body));
 
-        Ok(tournaments.into_iter().flat_map(|t| t.EventsHeaders).collect())
+        Ok(response.d.into_iter().flat_map(|t| t.EventsHeaders).collect())
     }
 }
 
@@ -53,13 +50,16 @@ impl Gambler for BetClub {
             password: password
         };
 
-        self.session.post_json(path, request_data).map(|_| ())
+        let response: String = try!(self.session.request(path).post(request_data));
+
+        debug!("{}", response);
+
+        Ok(())
     }
 
     fn check_balance(&self) -> Result<Currency> {
         let path = "/WebServices/BRService.asmx/GetUserBalance";
-        let response = try!(self.session.post_as_json(path, ""));
-        let balance: BalanceResponse = try!(json::from_reader(response));
+        let balance: BalanceResponse = try!(self.session.request(path).post("".to_string()));
 
         Ok(Currency::from(balance.d.Amount))
     }
@@ -142,13 +142,10 @@ impl Gambler for BetClub {
         );
 
         let path = "/WebServices/BRService.asmx/AddToBetslip";
-        let mut response = try!(self.session.post_as_json(path, body.as_ref()));
-        let mut string = String::new();
+        let response: String = try!(self.session.request(path).post(body));
 
-        try!(response.read_to_string(&mut string));
-
-        if !string.contains("LinesID") {
-            return Err(From::from(string));
+        if !response.contains("LinesID") {
+            return Err(From::from(response));
         }
 
         // Place bet
@@ -167,13 +164,10 @@ impl Gambler for BetClub {
         );
 
         let path = "/WebServices/BRService.asmx/PlaceBet";
-        let mut response = try!(self.session.post_as_json(path, body.as_ref()));
-        let mut string = String::new();
+        let response: String = try!(self.session.request(path).post(body));
 
-        try!(response.read_to_string(&mut string));
-
-        if !string.contains("AmountIn") {
-            return Err(From::from(string));
+        if !response.contains("AmountIn") {
+            return Err(From::from(response));
         }
 
         Ok(())
