@@ -59,7 +59,7 @@ impl Gambler for EGB {
     }
 
     fn check_balance(&self) -> Result<Currency> {
-        let balance: Balance = try!(self.session.request("/user/info?m=1&b=1").get());
+        let balance = try!(self.session.request("/user/info?m=1&b=1").get::<Balance>());
         let money = try!(balance.bets.parse::<f64>());
 
         Ok(Currency::from(money))

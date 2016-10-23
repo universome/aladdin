@@ -63,7 +63,7 @@ impl Gambler for XBet {
 
         // The site uses 1-minute period, but for us it's too long.
         for _ in Periodic::new(15) {
-            let message: Message = try!(self.session.request(&path).get());
+            let message = try!(self.session.request(&path).get::<Message>());
             let offers = try!(grab_offers(message));
 
             let active = offers.iter()

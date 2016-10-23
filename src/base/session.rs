@@ -168,26 +168,23 @@ impl<'a> RequestBuilder<'a> {
                 }
             }
 
-            match result {
-                Ok(response) => {
-                    // TODO(universome): actually we need to follow redirects when possible.
-                    // now it's almost always should be error, but cybbet relies on 302.
-                    if response.status.is_redirection() {
-                        if !self.follow_redirects {
-                            return Err(Error::from("Was redirected, but have no redirect policy"));
-                        }
+            let response = try!(result);
 
-                        return R::read(response);
-                    }
+            // TODO(universome): actually we need to follow redirects when possible.
+            // now it's almost always should be error, but cybbet relies on 302.
+            if response.status.is_redirection() {
+                if !self.follow_redirects {
+                    return Err(Error::from("Was redirected, but have no redirect policy"));
+                }
 
-                    if !response.status.is_success() {
-                        return Err(Error::from(response.status));
-                    }
-
-                    return R::read(response);
-                },
-                Err(err) => return Err(Error::from(err))
+                return R::read(response);
             }
+
+            if !response.status.is_success() {
+                return Err(Error::from(response.status));
+            }
+
+            return R::read(response);
         }
     }
 
@@ -264,8 +261,6 @@ impl Sendable for String {
 
 impl<'a> Sendable for Vec<(&'a str, &'a str)> {
     fn to_string(&self) -> Result<String> {
-        let encoded: String = UrlSerializer::new(String::new()).extend_pairs(self.iter()).finish();
-
-        Ok(encoded)
+        Ok(UrlSerializer::new(String::new()).extend_pairs(self.iter()).finish())
     }
 }
