@@ -14,7 +14,7 @@ use constants::{PORT, COMBO_COUNT};
 use base::error::Result;
 use base::logger;
 use base::currency::Currency;
-use arbitrer::{self, Bookie, Bucket, MarkedOffer};
+use arbitrer::{self, Bookie, BookieStage, Bucket, MarkedOffer};
 use combo::{self, Combo};
 
 pub fn run() {
@@ -121,15 +121,26 @@ fn render_bookies(b: &mut String, bookies: &[Bookie]) {
     write!(b, "
 # Bookies
 
-| Host | Balance | Active |
-| ---- | -------:|:------:|
+| Host | Balance | Stage |
+| ---- | -------:|:-----:|
     ");
 
     for bookie in bookies {
-        writeln!(b, "|{host}|{balance}|{active}|",
+        let stage = match bookie.stage() {
+            BookieStage::Initial => "".into(),
+            BookieStage::Preparing => "⌚".into(),
+            BookieStage::Running => "✓".into(),
+            BookieStage::Aborted => "✗".into(),
+            BookieStage::Sleeping(wakeup) => {
+                let now = time::get_time().sec as u32;
+                format_date(wakeup - now, "`%R`")
+            }
+        };
+
+        writeln!(b, "|{host}|{balance}|{stage}|",
                  host = bookie.host,
                  balance = bookie.balance(),
-                 active = if bookie.active() { '✓' } else { ' ' });
+                 stage = stage);
     }
 }
 

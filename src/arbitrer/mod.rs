@@ -5,16 +5,20 @@ use std::sync::mpsc::{self, Sender, Receiver};
 use std::sync::{Arc, Mutex, RwLock, Condvar, RwLockReadGuard};
 use time;
 
-use constants::{RETRY_DELAY, CHECK_TIMEOUT, BASE_STAKE, MAX_STAKE, MIN_PROFIT, MAX_PROFIT};
+use constants::{CHECK_TIMEOUT, BASE_STAKE, MAX_STAKE, MIN_PROFIT, MAX_PROFIT};
 use constants::BOOKIES_AUTH;
 use base::currency::Currency;
 use markets::{Offer, Outcome, DRAW, fuzzy_eq};
 use combo::{self, Combo, Bet};
 
-pub use self::bookie::{Bookie, MarkedOffer};
+pub use self::bookie::Bookie;
+pub use self::bookie::Stage as BookieStage;
 pub use self::bucket::Bucket;
 
 use self::opportunity::{Strategy, MarkedOutcome};
+
+#[derive(Clone)]
+pub struct MarkedOffer(pub &'static Bookie, pub Offer);
 
 mod bookie;
 mod bucket;
@@ -56,71 +60,21 @@ fn run_gambler(bookie: &'static Bookie,
     impl Drop for Guard {
         fn drop(&mut self) {
             degradation(self.0);
-
-            if thread::panicking() {
-                error!(target: self.0.module, "Terminated due to panic");
-            }
         }
     }
 
-    let module = bookie.module;
-    let mut delay = *RETRY_DELAY;
-    let mut started = false;
-
     loop {
-        if started {
-            let secs = delay.as_secs();
-            info!(target: module, "Sleeping for {:02}:{:02}", secs / 60, secs % 60);
-            thread::sleep(delay);
-            delay *= 2;
-        } else {
-            started = true;
-        }
-
         let _guard = Guard(bookie);
 
-        info!(target: module, "Authorizating...");
-
-        if let Err(error) = bookie.gambler.authorize(&bookie.username, &bookie.password) {
-            error!(target: module, "While authorizating: {}", error);
-            continue;
-        }
-
-        info!(target: module, "Checking balance...");
-
-        if let Err(error) = bookie.gambler.check_balance().map(|b| bookie.set_balance(b)) {
-            error!(target: module, "While checking balance: {}", error);
-            continue;
-        }
-
-        info!(target: module, "Watching for offers...");
-        bookie.activate();
-
-        delay = *RETRY_DELAY;
-
-        if let Err(error) = bookie.gambler.watch(&|offer, update| {
-            // If errors occured at the time of betting.
-            if !bookie.active() {
-                panic!("Some error occured while betting");
-            }
-
+        bookie.watch(&|offer, update| {
             let marked = MarkedOffer(bookie, offer);
             let chan = if update { &incoming } else { &outgoing };
             chan.send(marked).unwrap();
-        }) {
-            error!(target: module, "While watching: {}", error);
-            continue;
-        }
-
-        unreachable!();
+        });
     }
 }
 
 fn degradation(bookie: &Bookie) {
-    if !bookie.deactivate() {
-        return;
-    }
-
     let mut bucket = BUCKET.write().unwrap();
     bucket.remove_offers_by_bookie(bookie);
 }
@@ -358,17 +312,13 @@ fn place_bet(bookie: &Bookie, offer: Offer, outcome: Outcome, stake: Currency,
         done: false
     };
 
-    match bookie.gambler.check_offer(&offer, &outcome, stake) {
-        Ok(true) => {},
-        Ok(false) => {
-            warn!(target: bookie.module, "Offer {} is outdated", offer);
+    match bookie.check_offer(&offer, &outcome, stake) {
+        Some(true) => {},
+        Some(false) => {
             guard.done = true;
             return;
         },
-        Err(error) => {
-            error!(target: bookie.module, "While checking offer: {}", error);
-            return;
-        }
+        None => return
     }
 
     let mut count = count.lock().unwrap();
@@ -393,22 +343,11 @@ fn place_bet(bookie: &Bookie, offer: Offer, outcome: Outcome, stake: Currency,
     drop(count);
 
     let oid = offer.oid;
-
-    if cfg!(feature = "place-bets") {
-        if let Err(error) = bookie.gambler.place_bet(offer, outcome, stake) {
-            error!(target: bookie.module, "While placing bet: {}", error);
-            return;
-        }
-
-        guard.hold = None;
-    }
-
-    combo::mark_as_placed(&bookie.host, oid);
-
-    if let Err(error) = bookie.gambler.check_balance().map(|b| bookie.set_balance(b)) {
-        error!(target: bookie.module, "While checking balance: {}", error);
+    if !bookie.place_bet(offer, outcome, stake) {
         return;
     }
 
+    guard.hold = None;
+    combo::mark_as_placed(&bookie.host, oid);
     guard.done = true;
 }

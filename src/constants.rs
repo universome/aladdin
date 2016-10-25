@@ -4,7 +4,8 @@ use base::currency::Currency;
 
 // TODO(loyd): reconsider after `const fn` stabilization.
 lazy_static! {
-    pub static ref RETRY_DELAY: Duration = Duration::new(30 * 60, 0);
+    pub static ref MIN_RETRY_DELAY: Duration = Duration::new(30 * 60, 0);
+    pub static ref MAX_RETRY_DELAY: Duration = Duration::new(3 * 60 * 60, 0);
     pub static ref CHECK_TIMEOUT: Duration = Duration::new(1, 0);
 
     pub static ref BASE_STAKE: Currency = Currency::from(1.00);
