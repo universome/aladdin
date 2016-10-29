@@ -12,7 +12,8 @@ use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
 use base::currency::Currency;
-use gamblers::Gambler;
+use gamblers::{Gambler, Message};
+use gamblers::Message::*;
 use markets::{OID, Offer, Outcome, DRAW, Game, Kind};
 
 pub struct EGB {
@@ -64,9 +65,9 @@ impl Gambler for EGB {
         Ok(Currency::from(money))
     }
 
-    fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+    fn watch(&self, cb: &Fn(Message)) -> Result<()> {
         #[derive(PartialEq, Eq, PartialOrd, Ord)]
-        struct TimeMarker(i32, u32);
+        struct TimeMarker(i32, OID);
 
         let mut map = HashMap::new();
         let mut heap = BinaryHeap::new();
@@ -83,7 +84,7 @@ impl Gambler for EGB {
                 if let Some(offer) = try!(extract_offer(bet)) {
                     map.insert(id, offer.clone());
                     heap.push(TimeMarker(-(offer.date as i32), id));
-                    cb(offer, true);
+                    cb(Upsert(offer))
                 }
             }
         }
@@ -113,7 +114,7 @@ impl Gambler for EGB {
                     if !map.contains_key(&id) {
                         map.insert(id, offer.clone());
                         heap.push(TimeMarker(-(offer.date as i32), id));
-                        cb(offer, true);
+                        cb(Upsert(offer));
                         continue;
                     }
 
@@ -123,11 +124,7 @@ impl Gambler for EGB {
                         heap.push(TimeMarker(-(offer.date as i32), id));
                     }
 
-                    if stored != offer {
-                         cb(stored, false);
-                         cb(offer.clone(), true);
-                    }
-
+                    cb(Upsert(offer.clone()));
                     map.insert(id, offer);
                 }
             }
@@ -150,7 +147,7 @@ impl Gambler for EGB {
                 // Remove offer only if the time marker corresponds to the last modification.
                 if map.get(&id).map_or(false, |o| o.date == -date as u32) {
                     let offer = map.remove(&id).unwrap();
-                    cb(offer, false);
+                    cb(Remove(offer.oid));
                 }
             }
         }
@@ -196,7 +193,7 @@ impl Gambler for EGB {
         }
 
         for bet in table.bets.unwrap() {
-            if bet.id != offer.oid as u32 {
+            if bet.id != offer.oid {
                 continue;
             }
 
@@ -243,7 +240,7 @@ struct Bet {
     coef_draw: String,
     gamer_1: Gamer,
     gamer_2: Gamer,
-    id: u32,
+    id: u64,
     winner: i32,
     live: u8,
     ut: u32
@@ -295,7 +292,7 @@ fn extract_offer(bet: Bet) -> Result<Option<Offer>> {
     }
 
     Ok(Some(Offer {
-        oid: bet.id as OID,
+        oid: bet.id,
         date: bet.date,
         game: game,
         kind: Kind::Series,

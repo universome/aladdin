@@ -9,7 +9,8 @@ use base::error::{Result};
 use base::session::Session;
 use base::timers::Periodic;
 use base::currency::Currency;
-use gamblers::Gambler;
+use gamblers::{Gambler, Message};
+use gamblers::Message::*;
 use markets::{OID, Offer, Outcome, Game, Kind, DRAW};
 
 pub struct BetClub {
@@ -18,7 +19,7 @@ pub struct BetClub {
 }
 
 struct State {
-    offers: HashMap<u64, Offer>,
+    offers: HashMap<OID, Offer>,
     events: Vec<Event>
 }
 
@@ -63,7 +64,7 @@ impl Gambler for BetClub {
         Ok(Currency::from(balance.d.Amount))
     }
 
-    fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+    fn watch(&self, cb: &Fn(Message)) -> Result<()> {
         // TODO(universome): Add fluctuations (cloudflare can spot us)
         for _ in Periodic::new(30) {
             let mut state = self.state.lock().unwrap();
@@ -81,18 +82,12 @@ impl Gambler for BetClub {
 
             for id in outdated_ids {
                 let offer = state.offers.remove(&id).unwrap();
-                cb(offer, false);
+                cb(Remove(offer.oid));
             }
 
             // Gather new offers
             for fresh_offer in fresh_offers {
-                if let Some(offer) = state.offers.get(&fresh_offer.oid) {
-                    if offer == &fresh_offer && offer.date == fresh_offer.date {
-                        continue; // It's just the same offer :(
-                    }
-                }
-
-                cb(fresh_offer.clone(), true);
+                cb(Upsert(fresh_offer.clone()));
                 state.offers.insert(fresh_offer.oid, fresh_offer);
             }
         }

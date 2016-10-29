@@ -9,7 +9,8 @@ use time;
 
 use constants::{MIN_RETRY_DELAY, MAX_RETRY_DELAY};
 use base::currency::Currency;
-use gamblers::{self, BoxedGambler};
+use gamblers::{self, BoxedGambler, Message};
+use gamblers::Message::*;
 use markets::{OID, Offer, Outcome};
 
 use self::Stage::*;
@@ -214,7 +215,7 @@ impl Bookie {
 
         self.set_stage(Running);
 
-        if let Err(error) = self.gambler.watch(&|offer, update| {
+        if let Err(error) = self.gambler.watch(&|message| {
             self.set_delay(0);
 
             // If errors occured at the time of betting.
@@ -222,7 +223,7 @@ impl Bookie {
                 panic!("Some error occured while betting");
             }
 
-            cb(offer, update);
+            self.handle_message(message, &cb);
         }) {
             error!(target: self.module, "While watching: {}", error);
             return;
@@ -239,5 +240,37 @@ impl Bookie {
 
         self.set_stage(Sleeping(now + delay).into());
         self.set_delay(delay);
+    }
+
+    fn handle_message<F: Fn(Offer, bool)>(&self, message: Message, cb: &F) {
+        let mut offers = self.offers.lock().unwrap();
+
+        match message {
+            Upsert(offer) => {
+                if !offers.contains_key(&offer.oid) {
+                    cb(offer.clone(), true);
+                    offers.insert(offer.oid, offer);
+                    return;
+                }
+
+                let stored = offers.get_mut(&offer.oid).unwrap();
+
+                // TODO(loyd): change it after #78.
+                if stored != &offer {
+                    cb(stored.clone(), false);
+                    cb(offer.clone(), true);
+                    return;
+                } else if stored.outcomes != offer.outcomes {
+                    cb(offer.clone(), true);
+                }
+
+                *stored = offer;
+            },
+            Remove(oid) => {
+                if let Some(offer) = offers.remove(&oid) {
+                    cb(offer, false);
+                }
+            }
+        }
     }
 }

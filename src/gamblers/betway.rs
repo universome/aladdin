@@ -15,7 +15,8 @@ use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
 use base::currency::Currency;
 use base::websocket::Connection as Connection;
-use gamblers::Gambler;
+use gamblers::{Gambler, Message};
+use gamblers::Message::*;
 use markets::{OID, Offer, Outcome, DRAW, Game, Kind};
 
 pub struct BetWay {
@@ -115,7 +116,7 @@ impl Gambler for BetWay {
         Ok(Currency(customer_info.sbBalance))
     }
 
-    fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+    fn watch(&self, cb: &Fn(Message)) -> Result<()> {
         try!(self.set_user_state());
 
         let mut timer = Periodic::new(3600);
@@ -136,7 +137,7 @@ impl Gambler for BetWay {
                     }
 
                     if let Some(offer) = try!(create_offer_from_event(&event)) {
-                        cb(offer, true);
+                        cb(Upsert(offer));
                     }
 
                     let event_subscription = EventSubscription {
@@ -163,9 +164,9 @@ impl Gambler for BetWay {
             } {
                 if apply_update(&mut event, &update) {
                     if let Some(offer) = try!(create_offer_from_event(&event)) {
-                        cb(offer, true);
+                        cb(Upsert(offer));
                     } else {
-                        cb(try!(create_dummy_offer_from_event(&event)), false);
+                        cb(Remove(event.eventId as OID));
                     }
                 }
             }
@@ -456,19 +457,6 @@ fn create_offer_from_event(event: &Event) -> Result<Option<Offer>> {
         kind: kind,
         outcomes: outcomes.unwrap()
     }))
-}
-
-fn create_dummy_offer_from_event(event: &Event) -> Result<Offer> {
-    let ts = try!(time::strptime(&event.startAt, "%Y-%m-%dT%H:%M:%SZ")).to_timespec();
-    let (game, kind) = get_game_and_kind(event).unwrap();
-
-    Ok(Offer {
-        oid: event.eventId as OID,
-        date: ts.sec as u32,
-        game: game,
-        kind: kind,
-        outcomes: Vec::new()
-    })
 }
 
 fn get_game_and_kind(event: &Event) -> Option<(Game, Kind)> {

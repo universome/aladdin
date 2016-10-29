@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use serde_json as json;
 
 use base::error::{Result, Error};
@@ -8,7 +8,8 @@ use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
 use base::currency::Currency;
-use gamblers::Gambler;
+use gamblers::{Gambler, Message};
+use gamblers::Message::*;
 use markets::{OID, Offer, Outcome, DRAW, Game, Kind};
 
 pub struct XBet {
@@ -55,46 +56,29 @@ impl Gambler for XBet {
         Ok(Currency::from(balance))
     }
 
-    fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+    fn watch(&self, cb: &Fn(Message)) -> Result<()> {
         let path = "/LineFeed/Get1x2?sportId=40&count=50&cnt=10&lng=en";
-        let mut map = HashMap::new();
+        let mut active = HashSet::new();
 
         // The site uses 1-minute period, but for us it's too long.
         for _ in Periodic::new(15) {
-            let message = try!(self.session.get_json::<Message>(path));
+            let message = try!(self.session.get_json::<XMessage>(path));
             let offers = try!(grab_offers(message));
 
-            let active = offers.iter()
-                .map(|o| o.oid)
-                .collect::<HashSet<_>>();
+            // Deactive active offers.
+            for offer in &offers {
+                active.remove(&offer.oid);
+            }
 
-            // Remove redundant offers.
-            let redundants = map.keys()
-                .filter(|id| !active.contains(id))
-                .map(|id| *id)
-                .collect::<Vec<_>>();
-
-            for id in redundants {
-                let offer = map.remove(&id).unwrap();
-                cb(offer, false);
+            // Now `active` contains inactive.
+            for oid in active.drain() {
+                cb(Remove(oid))
             }
 
             // Add/update offers.
             for offer in offers {
-                if map.contains_key(&offer.oid) {
-                    if offer == map[&offer.oid] {
-                        if map[&offer.oid].outcomes != offer.outcomes {
-                            cb(offer, true);
-                        }
-
-                        continue;
-                    } else {
-                        cb(map.remove(&offer.oid).unwrap(), false);
-                    }
-                }
-
-                map.insert(offer.oid, offer.clone());
-                cb(offer, true);
+                active.insert(offer.oid);
+                cb(Upsert(offer));
             }
         }
 
@@ -139,16 +123,17 @@ impl Gambler for XBet {
 
     fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
         let path = "/LineFeed/Get1x2?sportId=40&count=50&cnt=10&lng=en";
-        let message = try!(self.session.get_json::<Message>(path));
+        let message = try!(self.session.get_json::<XMessage>(path));
 
         Ok(try!(grab_offers(message)).into_iter()
             .find(|actual| actual.oid == offer.oid)
+            // TODO(loyd): change it after #78.
             .map_or(true, |actual| &actual == offer && actual.outcomes == offer.outcomes))
     }
 }
 
 #[derive(Deserialize)]
-struct Message {
+struct XMessage {
     Error: String,
     Success: bool,
     Value: Vec<Info>
@@ -193,7 +178,7 @@ struct PlaceBetResponse {
     Success: bool
 }
 
-fn grab_offers(message: Message) -> Result<Vec<Offer>> {
+fn grab_offers(message: XMessage) -> Result<Vec<Offer>> {
     if !message.Success {
         return Err(From::from(message.Error));
     }

@@ -1,6 +1,6 @@
 use base::error::Result;
 use base::currency::Currency;
-use markets::{Offer, Outcome};
+use markets::{OID, Offer, Outcome};
 
 mod egamingbets;
 mod vitalbet;
@@ -9,10 +9,15 @@ mod cybbet;
 mod betway;
 mod betclub;
 
+pub enum Message {
+    Upsert(Offer),
+    Remove(OID)
+}
+
 pub trait Gambler {
     fn authorize(&self, username: &str, password: &str) -> Result<()>;
     fn check_balance(&self) -> Result<Currency>;
-    fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()>;
+    fn watch(&self, cb: &Fn(Message)) -> Result<()>;
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()>;
     fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
         Ok(true)

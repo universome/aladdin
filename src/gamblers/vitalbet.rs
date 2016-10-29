@@ -12,7 +12,8 @@ use base::currency::Currency;
 use base::timers::Periodic;
 use base::error::{Result, Error};
 use base::session::Session;
-use gamblers::Gambler;
+use gamblers::{Gambler, Message};
+use gamblers::Message::*;
 use markets::{OID, Offer, Outcome, Game, Kind, DRAW};
 
 use self::PollingMessage as PM;
@@ -66,7 +67,7 @@ impl VitalBet {
 }
 
 impl Gambler for VitalBet {
-    fn authorize(&self, username: &str, password: &str) -> Result<()> {
+    fn authorize(&self, _username: &str, _password: &str) -> Result<()> {
         let body = AuthData {
             BrowserFingerPrint: 426682306,
             Login: username,
@@ -84,7 +85,7 @@ impl Gambler for VitalBet {
         Ok(Currency::from(money))
     }
 
-    fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+    fn watch(&self, cb: &Fn(Message)) -> Result<()> {
         // First of all, we should get initial page to get session cookie.
         try!(self.session.get_html("/"));
 
@@ -101,7 +102,6 @@ impl Gambler for VitalBet {
 
         {
             let mut state = try!(self.state.lock());
-
             try!(provide_offers(&mut *state, cb));
         }
 
@@ -518,15 +518,15 @@ fn apply_match_update(state: &mut State, match_update: Match) -> Result<()> {
     Ok(())
 }
 
-fn provide_offers(state: &mut State, cb: &Fn(Offer, bool)) -> Result<()> {
+fn provide_offers(state: &mut State, cb: &Fn(Message)) -> Result<()> {
     for updated_match_id in state.changed_matches.drain() {
         if let Some(offer) = try!(convert_match_into_offer(&state.matches[&updated_match_id])) {
             state.offers.insert(offer.oid as u32, offer.clone());
 
-            cb(offer, true);
+            cb(Upsert(offer));
         } else {
             if let Some(offer) = state.offers.remove(&updated_match_id) {
-                cb(offer, false);
+                cb(Remove(offer.oid));
             }
 
             if state.matches[&updated_match_id].IsFinished.unwrap_or(false) {

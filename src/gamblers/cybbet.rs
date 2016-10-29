@@ -12,7 +12,8 @@ use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::Session;
 use base::currency::Currency;
-use gamblers::Gambler;
+use gamblers::{Gambler, Message};
+use gamblers::Message::*;
 use markets::{Offer, Outcome, DRAW, Game, Kind};
 
 // The site uses 1-minute period, but for us it's too long.
@@ -87,7 +88,7 @@ impl Gambler for CybBet {
         Ok(Currency::from(cash))
     }
 
-    fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+    fn watch(&self, cb: &Fn(Message)) -> Result<()> {
         let html = try!(self.session.get_html("/"));
         let offers = try!(extract_offers(html));
 
@@ -95,7 +96,7 @@ impl Gambler for CybBet {
 
         for offer in offers {
             table.insert(offer.oid as u32, offer.clone());
-            cb(offer, true);
+            cb(Upsert(offer));
         }
 
         for _ in Periodic::new(PERIOD) {
@@ -125,7 +126,7 @@ impl Gambler for CybBet {
                         debug_assert_eq!(offer.outcomes.len(), 2);
                     }
 
-                    cb(offer.clone(), true);
+                    cb(Upsert(offer.clone()));
                 }
             }
 
@@ -135,7 +136,7 @@ impl Gambler for CybBet {
                     let id = try!(id.parse());
 
                     if let Some(offer) = table.remove(&id) {
-                        cb(offer, false);
+                        cb(Remove(offer.oid));
                     }
                 }
             }
@@ -146,12 +147,9 @@ impl Gambler for CybBet {
 
                 for (id, date) in relevant {
                     if table.contains_key(&id) {
-                        let old = table[&id].clone();
-                        table.get_mut(&id).map(|o| o.date = date);
-
-                        if old != table[&id] {
-                            cb(old, false);
-                            cb(table[&id].clone(), true);
+                        if table[&id].date != date {
+                            table.get_mut(&id).map(|o| o.date = date);
+                            cb(Upsert(table[&id].clone()))
                         }
 
                         continue;
@@ -172,7 +170,7 @@ impl Gambler for CybBet {
 
                     if !offers.is_empty() {
                         let offer = offers.drain(..).next().unwrap();
-                        cb(offer.clone(), true);
+                        cb(Upsert(offer.clone()));
                         table.insert(id, offer);
                     }
                 }
