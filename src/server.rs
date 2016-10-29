@@ -187,12 +187,13 @@ fn render_bucket(b: &mut String, bucket: &Bucket) {
     let mut groups = HashMap::new();
 
     for (offer, event) in bucket.iter() {
-        let vec = groups.entry(offer.kind.clone()).or_insert_with(Vec::new);
+        let pair = (offer.game.clone(), offer.kind.clone());
+        let vec = groups.entry(pair).or_insert_with(Vec::new);
         vec.push(event);
     }
 
-    for (kind, mut bucket) in groups {
-        writeln!(b, "## {:?}", kind);
+    for ((game, kind), mut bucket) in groups {
+        writeln!(b, "## {:?} [{:?}]", game, kind);
 
         bucket.sort_by_key(|event| event[0].1.date);
 
