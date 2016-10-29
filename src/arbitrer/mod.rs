@@ -318,6 +318,10 @@ fn place_bet(bookie: &'static Bookie, offer: Offer, outcome: Outcome, stake: Cur
         done: false
     };
 
+    if !bookie.glance_offer(&offer) {
+        return;
+    }
+
     match bookie.check_offer(&offer, &outcome, stake) {
         Some(true) => {},
         Some(false) => {
@@ -347,6 +351,11 @@ fn place_bet(bookie: &'static Bookie, offer: Offer, outcome: Outcome, stake: Cur
     }
 
     drop(count);
+
+    if !bookie.glance_offer(&offer) {
+        // TODO(loyd): abort the whole betting process.
+        error!("Ooops, one of the offers is rotten!");
+    }
 
     let oid = offer.oid;
     if !bookie.place_bet(offer, outcome, stake) {

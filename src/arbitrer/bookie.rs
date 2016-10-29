@@ -151,6 +151,21 @@ impl Bookie {
         self.schedule_sleep();
     }
 
+    pub fn glance_offer(&self, offer: &Offer) -> bool {
+        let offers = self.offers.lock().unwrap();
+
+        let is_actual = offers.get(&offer.oid).map_or(false, |stored| {
+            // TODO(loyd): change it after #78.
+            stored == offer && stored.outcomes == offer.outcomes
+        });
+
+        if !is_actual {
+            warn!(target: self.module, "Offer {} is suddenly outdated", offer);
+        }
+
+        is_actual
+    }
+
     pub fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Option<bool> {
         match self.gambler.check_offer(offer, outcome, stake) {
             Ok(true) => Some(true),
