@@ -74,9 +74,15 @@ fn run_gambler(bookie: &'static Bookie,
     }
 }
 
-fn degradation(bookie: &Bookie) {
+fn degradation(bookie: &'static Bookie) {
     let mut bucket = BUCKET.write().unwrap();
-    bucket.remove_offers_by_bookie(bookie);
+    let outdated = bookie.drain();
+
+    info!("Degradation of {}. Removing {} offers...", bookie.host, outdated.len());
+
+    for offer in outdated {
+        bucket.remove_offer(&MarkedOffer(bookie, offer));
+    }
 }
 
 fn process_channels(incoming: Receiver<MarkedOffer>, outgoing: Receiver<MarkedOffer>) {
@@ -285,16 +291,16 @@ fn place_bets(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
     save_combo(&pairs, &stakes);
 }
 
-fn place_bet(bookie: &Bookie, offer: Offer, outcome: Outcome, stake: Currency,
+fn place_bet(bookie: &'static Bookie, offer: Offer, outcome: Outcome, stake: Currency,
              count: &Mutex<u32>, cvar: &Condvar)
 {
-    struct Guard<'b> {
-        bookie: &'b Bookie,
+    struct Guard {
+        bookie: &'static Bookie,
         hold: Option<Currency>,
         done: bool
     }
 
-    impl<'b> Drop for Guard<'b> {
+    impl Drop for Guard {
         fn drop(&mut self) {
             if !self.done {
                 degradation(self.bookie);

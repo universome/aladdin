@@ -2,7 +2,7 @@ use std::ops::Deref;
 use std::collections::HashMap;
 
 use markets::Offer;
-use arbitrer::{Bookie, MarkedOffer};
+use arbitrer::MarkedOffer;
 
 pub struct Bucket(HashMap<Offer, Vec<MarkedOffer>>);
 
@@ -66,19 +66,6 @@ impl Bucket {
         if remove_market {
             debug!("Event [{} by {}] is removed", marked.1, marked.0.host);
             self.0.remove(&marked.1);
-        }
-    }
-
-    pub fn remove_offers_by_bookie(&mut self, bookie: &Bookie) {
-        let outdated = self.0.values()
-            .flat_map(|offers| offers.iter().filter(|o| o.0 == bookie))
-            .cloned()
-            .collect::<Vec<_>>();
-
-        info!("Regression of {}. Removing {} offers...", bookie.host, outdated.len());
-
-        for marked in outdated {
-            self.remove_offer(&marked);
         }
     }
 }
