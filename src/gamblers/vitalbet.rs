@@ -179,17 +179,6 @@ struct State {
     changed_matches: HashSet<u32>
 }
 
-impl State {
-    fn new(&self) -> State {
-        State {
-            matches: HashMap::new(),
-            odds_to_matches_ids: HashMap::new(),
-            offers: HashMap::new(),
-            changed_matches: HashSet::new()
-        }
-    }
-}
-
 #[derive(Serialize)]
 struct AuthData<'a> {
     BrowserFingerPrint: i64,

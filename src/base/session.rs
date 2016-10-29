@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::io::Read;
 use std::io::ErrorKind::{WouldBlock, TimedOut};
 use std::time::{Duration};

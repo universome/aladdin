@@ -121,7 +121,7 @@ impl Gambler for XBet {
         Ok(())
     }
 
-    fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
+    fn check_offer(&self, offer: &Offer, _: &Outcome, _: Currency) -> Result<bool> {
         let path = "/LineFeed/Get1x2?sportId=40&count=50&cnt=10&lng=en";
         let message = try!(self.session.request(path).get::<XMessage>());
 

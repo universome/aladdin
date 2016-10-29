@@ -1,3 +1,5 @@
+#![allow(unused_variables)]
+
 use base::error::Result;
 use base::currency::Currency;
 use markets::{OID, Offer, Outcome};

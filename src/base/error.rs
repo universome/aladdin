@@ -63,7 +63,7 @@ impl From<JsonError> for Error {
 }
 
 impl<T> From<PoisonError<T>> for Error {
-    fn from(err: PoisonError<T>) -> Error {
+    fn from(_: PoisonError<T>) -> Error {
         Error::from("Poison error")
     }
 }

@@ -95,7 +95,7 @@ impl Gambler for BetClub {
         Ok(())
     }
 
-    fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
+    fn check_offer(&self, offer: &Offer, outcome: &Outcome, _: Currency) -> Result<bool> {
         let current_events = try!(self.fetch_events());
         let event = current_events.iter().find(|e| e.Id == offer.oid as u32).unwrap();
 
