@@ -26,7 +26,7 @@ impl Connection {
     }
 
     pub fn send<T: Serialize + Debug>(&mut self, message: T) -> Result<()> {
-        debug!("Sending message: {:?}", message);
+        trace!("Sending message: {:?}", message);
 
         let message = Message::text(try!(json::to_string(&message)));
 
@@ -40,15 +40,15 @@ impl Connection {
 
             match message.opcode {
                 Type::Close => {
-                    debug!("Received close message. Sending close message.");
+                    trace!("Received close message. Sending close message.");
                     try!(self.0.send_message(&Message::close()));
                 },
                 Type::Ping => {
-                    debug!("Received ping. Sending pong.");
+                    trace!("Received ping. Sending pong.");
                     try!(self.0.send_message(&Message::pong(message.payload)));
                 },
                 Type::Text => {
-                    debug!("Received text message: {:?}", str::from_utf8(&*message.payload));
+                    trace!("Received text message: {:?}", str::from_utf8(&*message.payload));
 
                     match json::from_reader::<&[u8], T>(&*message.payload) {
                         Ok(m) => return Ok(m),
@@ -58,7 +58,7 @@ impl Connection {
                     }
                 },
                 another_type => {
-                    debug!("Received not interesting message type: {:?}", another_type);
+                    trace!("Received not interesting message type: {:?}", another_type);
                 }
             }
         }

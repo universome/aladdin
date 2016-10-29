@@ -1,4 +1,4 @@
-use events::Outcome;
+use markets::Outcome;
 
 use self::Strategy::*;
 

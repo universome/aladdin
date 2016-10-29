@@ -14,7 +14,7 @@ use constants::{PORT, COMBO_COUNT};
 use base::error::Result;
 use base::logger;
 use base::currency::Currency;
-use arbitrer::{self, Bookie, Events, MarkedOffer};
+use arbitrer::{self, Bookie, BookieStage, Bucket, MarkedOffer};
 use combo::{self, Combo};
 
 pub fn run() {
@@ -64,8 +64,8 @@ fn send_index(res: Response) -> Result<()> {
     render_combos(&mut buffer, &combos);
 
     {
-        let events = arbitrer::acquire_events();
-        render_events(&mut buffer, &*events);
+        let bucket = arbitrer::acquire_bucket();
+        render_bucket(&mut buffer, &*bucket);
     }
 
     render_footer(&mut buffer, now.elapsed());
@@ -121,15 +121,26 @@ fn render_bookies(b: &mut String, bookies: &[Bookie]) {
     write!(b, "
 # Bookies
 
-| Host | Balance | Active |
-| ---- | -------:|:------:|
+| Host | Balance | Stage |
+| ---- | -------:|:-----:|
     ");
 
     for bookie in bookies {
-        writeln!(b, "|{host}|{balance}|{active}|",
+        let stage = match bookie.stage() {
+            BookieStage::Initial => "".into(),
+            BookieStage::Preparing => "⌚".into(),
+            BookieStage::Running => "✓".into(),
+            BookieStage::Aborted => "✗".into(),
+            BookieStage::Sleeping(wakeup) => {
+                let now = time::get_time().sec as u32;
+                format_date(wakeup - now, "`%R`")
+            }
+        };
+
+        writeln!(b, "|{host}|{balance}|{stage}|",
                  host = bookie.host,
                  balance = bookie.balance(),
-                 active = if bookie.active() { '✓' } else { ' ' });
+                 stage = stage);
     }
 }
 
@@ -166,36 +177,37 @@ fn render_combos(b: &mut String, combos: &[Combo]) {
     }
 }
 
-fn render_events(b: &mut String, events: &Events) {
-    if events.is_empty() {
+fn render_bucket(b: &mut String, bucket: &Bucket) {
+    if bucket.is_empty() {
         return;
     }
 
-    writeln!(b, "# Events");
+    writeln!(b, "# Markets");
 
     let mut groups = HashMap::new();
 
-    for (offer, event) in events {
-        let vec = groups.entry(offer.kind.clone()).or_insert_with(Vec::new);
+    for (offer, event) in bucket.iter() {
+        let pair = (offer.game.clone(), offer.kind.clone());
+        let vec = groups.entry(pair).or_insert_with(Vec::new);
         vec.push(event);
     }
 
-    for (kind, mut events) in groups {
-        writeln!(b, "## {:?}", kind);
+    for ((game, kind), mut bucket) in groups {
+        writeln!(b, "## {:?} [{:?}]", game, kind);
 
-        events.sort_by_key(|event| event[0].1.date);
+        bucket.sort_by_key(|event| event[0].1.date);
 
-        for event in events {
+        for event in bucket {
             let outcome_count = event[0].1.outcomes.len();
 
             writeln!(b, "{}", iter::repeat('|').take(outcome_count + 4).collect::<String>());
             writeln!(b, "|{}", iter::repeat("---|").take(outcome_count + 3).collect::<String>());
 
             for &MarkedOffer(bookie, ref offer) in event {
-                write!(b, "|`{date}`|{host}|#{inner_id}|",
+                write!(b, "|`{date}`|{host}|#{oid}|",
                        date = format_date(offer.date, "%d/%m %R"),
                        host = bookie.host,
-                       inner_id = offer.inner_id);
+                       oid = offer.oid);
 
                 for outcome in &offer.outcomes {
                     write!(b, "{outcome} `{odds:.2}`|",

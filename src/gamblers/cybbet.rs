@@ -11,9 +11,9 @@ use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::{Session, Type};
 use base::currency::Currency;
-use gamblers::Gambler;
-use events::{Offer, Outcome, DRAW, Kind};
-use events::kinds::*;
+use gamblers::{Gambler, Message};
+use gamblers::Message::*;
+use markets::{Offer, Outcome, DRAW, Game, Kind};
 
 // The site uses 1-minute period, but for us it's too long.
 const PERIOD: u32 = 30;
@@ -53,7 +53,7 @@ impl CybBet {
             "express": [],
             "expressGame": []
         }}"#,
-            id = offer.inner_id,
+            id = offer.oid,
             result = result,
             coef = outcome.1,
             stake = stake);
@@ -88,20 +88,20 @@ impl Gambler for CybBet {
         Ok(Currency::from(cash))
     }
 
-    fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
-        let html: NodeRef = try!(self.session.request("/").get());
+    fn watch(&self, cb: &Fn(Message)) -> Result<()> {
+        let html = try!(self.session.request("/").get::<NodeRef>());
         let offers = try!(extract_offers(html));
 
         let mut table = HashMap::new();
 
         for offer in offers {
-            table.insert(offer.inner_id as u32, offer.clone());
-            cb(offer, true);
+            table.insert(offer.oid as u32, offer.clone());
+            cb(Upsert(offer));
         }
 
         for _ in Periodic::new(PERIOD) {
             // Collect all active offers and send them.
-            let games = table.values().map(Game::from).collect::<Vec<_>>();
+            let games = table.values().map(CGame::from).collect::<Vec<_>>();
             let games = try!(json::to_string(&games));
             let request = self.session.request("/games/getCurrentKoef").content_type(Type::Form);
             let koef: CurrentKoef = try!(request.post(&[("request", &games)]));
@@ -123,7 +123,7 @@ impl Gambler for CybBet {
                         debug_assert_eq!(offer.outcomes.len(), 2);
                     }
 
-                    cb(offer.clone(), true);
+                    cb(Upsert(offer.clone()));
                 }
             }
 
@@ -133,7 +133,7 @@ impl Gambler for CybBet {
                     let id = try!(id.parse());
 
                     if let Some(offer) = table.remove(&id) {
-                        cb(offer, false);
+                        cb(Remove(offer.oid));
                     }
                 }
             }
@@ -144,12 +144,9 @@ impl Gambler for CybBet {
 
                 for (id, date) in relevant {
                     if table.contains_key(&id) {
-                        let old = table[&id].clone();
-                        table.get_mut(&id).map(|o| o.date = date);
-
-                        if old != table[&id] {
-                            cb(old, false);
-                            cb(table[&id].clone(), true);
+                        if table[&id].date != date {
+                            table.get_mut(&id).map(|o| o.date = date);
+                            cb(Upsert(table[&id].clone()))
                         }
 
                         continue;
@@ -167,7 +164,7 @@ impl Gambler for CybBet {
 
                     if !offers.is_empty() {
                         let offer = offers.drain(..).next().unwrap();
-                        cb(offer.clone(), true);
+                        cb(Upsert(offer.clone()));
                         table.insert(id, offer);
                     }
                 }
@@ -204,7 +201,7 @@ struct CurrentKoef {
 }
 
 #[derive(Serialize)]
-struct Game {
+struct CGame {
     idGame: u32,
     team1: f64,
     team2: f64,
@@ -212,10 +209,10 @@ struct Game {
     gameStart: u32
 }
 
-impl<'a> From<&'a Offer> for Game {
-    fn from(offer: &'a Offer) -> Game {
-        Game {
-            idGame: offer.inner_id as u32,
+impl<'a> From<&'a Offer> for CGame {
+    fn from(offer: &'a Offer) -> CGame {
+        CGame {
+            idGame: offer.oid as u32,
             team1: offer.outcomes[0].1,
             team2: offer.outcomes[1].1,
             draw: offer.outcomes.get(2).map(|o| o.1),
@@ -238,20 +235,20 @@ fn extract_offers(html: NodeRef) -> Result<Vec<Offer>> {
             continue;
         }
 
-        let kind = match kind_class {
-            "csgo" => Kind::CounterStrike(CounterStrike::Series),
-            "dota2" => Kind::Dota2(Dota2::Series),
-            "hearthstone" => Kind::Hearthstone(Hearthstone::Series),
-            "heroesofthestorm" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
-            "lol" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
-            "ovw" => Kind::Overwatch(Overwatch::Series),
-            "smite" => Kind::Smite(Smite::Series),
-            "starcraft2" => Kind::StarCraft2(StarCraft2::Series),
-            "VG" => Kind::Vainglory(Vainglory::Series),
-            "wot" => Kind::WorldOfTanks(WorldOfTanks::Series),
-            "cod" => continue,
+        let game = match kind_class {
+            "csgo" => Game::CounterStrike,
+            "dota2" =>Game::Dota2,
+            "hearthstone" => Game::Hearthstone,
+            "heroesofthestorm" => Game::HeroesOfTheStorm,
+            "lol" => Game::LeagueOfLegends,
+            "ovw" => Game::Overwatch,
+            "smite" => Game::Smite,
+            "starcraft2" => Game::StarCraft2,
+            "VG" => Game::Vainglory,
+            "wot" => Game::WorldOfTanks,
+            "cod" | "warcraft3" | "warcraft" | "wc3" => continue,
             class => {
-                warn!("Unknown kind: {}", class);
+                warn!("Unknown game: {}", class);
                 continue;
             }
         };
@@ -280,10 +277,11 @@ fn extract_offers(html: NodeRef) -> Result<Vec<Offer>> {
         }
 
         offers.push(Offer {
+            oid: try!(id.parse()),
             date: try!(date.parse()),
-            kind: kind,
-            outcomes: outcomes,
-            inner_id: try!(id.parse())
+            game: game,
+            kind: Kind::Series,
+            outcomes: outcomes
         })
     }
 

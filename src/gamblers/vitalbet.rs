@@ -12,9 +12,9 @@ use base::currency::Currency;
 use base::timers::Periodic;
 use base::error::{Result, Error};
 use base::session::Session;
-use gamblers::Gambler;
-use events::{Offer, Outcome, Kind, DRAW};
-use events::kinds::*;
+use gamblers::{Gambler, Message};
+use gamblers::Message::*;
+use markets::{OID, Offer, Outcome, Game, Kind, DRAW};
 
 use self::PollingMessage as PM;
 
@@ -85,7 +85,7 @@ impl Gambler for VitalBet {
         Ok(Currency::from(balance.Balance))
     }
 
-    fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+    fn watch(&self, cb: &Fn(Message)) -> Result<()> {
         // First of all, we should get initial page to get session cookie.
         try!(self.session.request("/").get());
 
@@ -102,7 +102,6 @@ impl Gambler for VitalBet {
 
         {
             let mut state = try!(self.state.lock());
-
             try!(provide_offers(&mut *state, cb));
         }
 
@@ -134,9 +133,9 @@ impl Gambler for VitalBet {
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
         let state = &*try!(self.state.lock());
-        let match_ = match state.matches.get(&(offer.inner_id as u32)) {
+        let match_ = match state.matches.get(&(offer.oid as u32)) {
             Some(m) => m,
-            None => return Err(Error::from("Match with provided offer.inner_id is not found"))
+            None => return Err(Error::from("Match with provided oid is not found"))
         };
         let outcome_id = match match_.PreviewOdds {
             Some(ref odds) => match odds.iter().find(|o| o.Title == outcome.0) {
@@ -359,11 +358,15 @@ fn convert_prematch_match_update(update: PrematchMatchUpdate) -> Match {
 }
 
 fn convert_match_into_offer(match_: &Match) -> Result<Option<Offer>> {
-    let kind = get_kind_from_match(&match_);
+    let game_and_kind = get_game_and_kind(&match_);
+
+    if match_.IsSuspended || !match_.IsActive.unwrap_or(true) || game_and_kind.is_none() {
+        return Ok(None);
+    }
 
     match match_.PreviewMarket {
         Some(Market { ref Name }) => {
-            // Currently, we are interested only in a special market types
+            // Currently, we are interested only in a special market types.
             if Name != "Match Odds" && Name != "Match Odds (3 Way)" && Name != "Series Winner" {
                 return Ok(None);
             }
@@ -372,10 +375,6 @@ fn convert_match_into_offer(match_: &Match) -> Result<Option<Offer>> {
             warn!("We have a match without PreviewMarket: {:?}", match_);
             return Ok(None);
         }
-    }
-
-    if match_.IsSuspended || !match_.IsActive.unwrap_or(true) || kind.is_none() {
-        return Ok(None);
     }
 
     match match_.PreviewOdds {
@@ -400,37 +399,40 @@ fn convert_match_into_offer(match_: &Match) -> Result<Option<Offer>> {
 
     let ts = try!(time::strptime(&match_.DateOfMatch, "%Y-%m-%dT%H:%M:%S")).to_timespec();
 
+    let (game, kind) = game_and_kind.unwrap();
+
     Ok(Some(Offer {
+        oid: match_.ID as OID,
         date: ts.sec as u32,
-        kind: kind.unwrap(),
-        outcomes: odds,
-        inner_id: match_.ID as u64
+        game: game,
+        kind: kind,
+        outcomes: odds
     }))
 }
 
-fn get_kind_from_match(match_: &Match) -> Option<Kind> {
+fn get_game_and_kind(match_: &Match) -> Option<(Game, Kind)> {
     if match_.Category.is_none() {
         return None;
     }
 
-    Some(match match_.Category.as_ref().unwrap().ID {
-        3578 => Kind::LeagueOfLegends(LeagueOfLegends::Series),
-        3597 => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
-        3598 => Kind::Hearthstone(Hearthstone::Series),
-        3600 => Kind::Smite(Smite::Series),
-        3601 => Kind::WorldOfTanks(WorldOfTanks::Series),
-        3683 => Kind::CounterStrike(CounterStrike::Series),
-        3693 => Kind::Dota2(Dota2::Series),
-        3704 => Kind::StarCraft2(StarCraft2::Series),
-        5791 => Kind::Overwatch(Overwatch::Series),
-        5942 => Kind::Halo(Halo::Series),
-        6241 => Kind::CrossFire(CrossFire::Series),
+    Some((match match_.Category.as_ref().unwrap().ID {
+        3578 => Game::LeagueOfLegends,
+        3597 => Game::HeroesOfTheStorm,
+        3598 => Game::Hearthstone,
+        3600 => Game::Smite,
+        3601 => Game::WorldOfTanks,
+        3683 => Game::CounterStrike,
+        3693 => Game::Dota2,
+        3704 => Game::StarCraft2,
+        5791 => Game::Overwatch,
+        5942 => Game::Halo,
+        6241 => Game::CrossFire,
+        5825 => Game::Vainglory,
         _ => {
             warn!("New category in vitalbet esports: {:?}", match_.Category);
-
             return None
         }
-    })
+    }, Kind::Series))
 }
 
 fn apply_updates(state: &mut State, messages: Vec<PollingMessage>) -> Result<()> {
@@ -516,15 +518,15 @@ fn apply_match_update(state: &mut State, match_update: Match) -> Result<()> {
     Ok(())
 }
 
-fn provide_offers(state: &mut State, cb: &Fn(Offer, bool)) -> Result<()> {
+fn provide_offers(state: &mut State, cb: &Fn(Message)) -> Result<()> {
     for updated_match_id in state.changed_matches.drain() {
         if let Some(offer) = try!(convert_match_into_offer(&state.matches[&updated_match_id])) {
-            state.offers.insert(offer.inner_id as u32, offer.clone());
+            state.offers.insert(offer.oid as u32, offer.clone());
 
-            cb(offer, true);
+            cb(Upsert(offer));
         } else {
             if let Some(offer) = state.offers.remove(&updated_match_id) {
-                cb(offer, false);
+                cb(Remove(offer.oid));
             }
 
             if state.matches[&updated_match_id].IsFinished.unwrap_or(false) {

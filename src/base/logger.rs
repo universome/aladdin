@@ -34,22 +34,23 @@ macro_rules! stylish {
 }
 
 fn format(record: &LogRecord) -> String {
-    let style = match record.level() {
-        LogLevel::Error => stylish!("31"),
-        LogLevel::Warn  => stylish!("33"),
-        LogLevel::Info  => stylish!("37"),
-        LogLevel::Debug => stylish!("35"),
-        LogLevel::Trace => stylish!("34")
+    let (shortcut, style) = match record.level() {
+        LogLevel::Error => ("E", stylish!("31")),
+        LogLevel::Warn  => ("W", stylish!("33")),
+        LogLevel::Info  => ("I", stylish!("37")),
+        LogLevel::Debug => ("D", stylish!("35")),
+        LogLevel::Trace => ("T", stylish!("34"))
     };
 
     let timestamp = time::now();
 
-    format!("{st_t}{timestamp}{st_r} {target:12} | {st_m}{message}{st_r}",
+    format!("{st_t}{timestamp}{st_r} {target:12} [{st_t}{shortcut}{st_r}] {st_m}{message}{st_r}",
             st_t = style,
             st_m = style,
             st_r = stylish!("0"),
             timestamp = timestamp.strftime("%R").unwrap(),
             target = trim_target(record.target()),
+            shortcut = shortcut,
             message = record.args())
 }
 

@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use kuchiki::NodeRef;
 
 use base::error::{Result, Error};
@@ -8,9 +8,9 @@ use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::{Session, Type};
 use base::currency::Currency;
-use gamblers::Gambler;
-use events::{Offer, Outcome, DRAW, Kind};
-use events::kinds::*;
+use gamblers::{Gambler, Message};
+use gamblers::Message::*;
+use markets::{OID, Offer, Outcome, DRAW, Game, Kind};
 
 pub struct XBet {
     session: Session
@@ -57,46 +57,29 @@ impl Gambler for XBet {
         Ok(Currency::from(balance))
     }
 
-    fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+    fn watch(&self, cb: &Fn(Message)) -> Result<()> {
         let path = "/LineFeed/Get1x2?sportId=40&count=50&cnt=10&lng=en";
-        let mut map = HashMap::new();
+        let mut active = HashSet::new();
 
         // The site uses 1-minute period, but for us it's too long.
         for _ in Periodic::new(15) {
-            let message = try!(self.session.request(&path).get::<Message>());
+            let message = try!(self.session.request(&path).get::<XMessage>());
             let offers = try!(grab_offers(message));
 
-            let active = offers.iter()
-                .map(|o| o.inner_id)
-                .collect::<HashSet<_>>();
+            // Deactive active offers.
+            for offer in &offers {
+                active.remove(&offer.oid);
+            }
 
-            // Remove redundant offers.
-            let redundants = map.keys()
-                .filter(|id| !active.contains(id))
-                .map(|id| *id)
-                .collect::<Vec<_>>();
-
-            for id in redundants {
-                let offer = map.remove(&id).unwrap();
-                cb(offer, false);
+            // Now `active` contains inactive.
+            for oid in active.drain() {
+                cb(Remove(oid))
             }
 
             // Add/update offers.
             for offer in offers {
-                if map.contains_key(&offer.inner_id) {
-                    if offer == map[&offer.inner_id] {
-                        if map[&offer.inner_id].outcomes != offer.outcomes {
-                            cb(offer, true);
-                        }
-
-                        continue;
-                    } else {
-                        cb(map.remove(&offer.inner_id).unwrap(), false);
-                    }
-                }
-
-                map.insert(offer.inner_id, offer.clone());
-                cb(offer, true);
+                active.insert(offer.oid);
+                cb(Upsert(offer));
             }
         }
 
@@ -118,7 +101,7 @@ impl Gambler for XBet {
         let request_data = PlaceBetRequest {
             Events: vec![
                 PlaceBetRequestEvent {
-                    GameId: offer.inner_id as u32,
+                    GameId: offer.oid as u32,
                     Coef: outcome.1,
                     Kind: 3,
                     Type: result
@@ -140,16 +123,17 @@ impl Gambler for XBet {
 
     fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
         let path = "/LineFeed/Get1x2?sportId=40&count=50&cnt=10&lng=en";
-        let message: Message = try!(self.session.request(path).get());
+        let message = try!(self.session.request(path).get::<XMessage>());
 
         Ok(try!(grab_offers(message)).into_iter()
-            .find(|actual| actual.inner_id == offer.inner_id)
+            .find(|actual| actual.oid == offer.oid)
+            // TODO(loyd): change it after #78.
             .map_or(true, |actual| &actual == offer && actual.outcomes == offer.outcomes))
     }
 }
 
 #[derive(Deserialize)]
-struct Message {
+struct XMessage {
     Error: String,
     Success: bool,
     Value: Vec<Info>
@@ -194,7 +178,7 @@ struct PlaceBetResponse {
     Success: bool
 }
 
-fn grab_offers(message: Message) -> Result<Vec<Offer>> {
+fn grab_offers(message: XMessage) -> Result<Vec<Offer>> {
     if !message.Success {
         return Err(From::from(message.Error));
     }
@@ -209,19 +193,20 @@ fn grab_offers(message: Message) -> Result<Vec<Offer>> {
 
         let champ = &info.ChampEng;
 
-        let kind = match &champ[..4] {
-            "CS:G" | "Coun" => Kind::CounterStrike(CounterStrike::Series),
-            "Dota" => Kind::Dota2(Dota2::Series),
-            "Hero" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
-            "Hear" => Kind::Hearthstone(Hearthstone::Series),
-            "Leag" | "LoL " => Kind::LeagueOfLegends(LeagueOfLegends::Series),
-            "Over" => Kind::Overwatch(Overwatch::Series),
-            "Smit" => Kind::Smite(Smite::Series),
-            "Star" => Kind::StarCraft2(StarCraft2::Series),
-            "Worl" => Kind::WorldOfTanks(WorldOfTanks::Series),
-            _ if champ.contains("StarCraft") => Kind::StarCraft2(StarCraft2::Series),
+        let game = match &champ[..4] {
+            "CS:G" | "Coun" => Game::CounterStrike,
+            "Dota" => Game::Dota2,
+            "Hero" => Game::HeroesOfTheStorm,
+            "Hear" => Game::Hearthstone,
+            "Leag" | "LoL " => Game::LeagueOfLegends,
+            "Over" => Game::Overwatch,
+            "Smit" => Game::Smite,
+            "Star" => Game::StarCraft2,
+            "Worl" => Game::WorldOfTanks,
+            _ if champ.contains("StarCraft") => Game::StarCraft2,
+            "WarC" => return None,
             _ => {
-                warn!("Unknown kind: {}", info.ChampEng);
+                warn!("Unknown game: {}", info.ChampEng);
                 return None;
             }
         };
@@ -240,10 +225,11 @@ fn grab_offers(message: Message) -> Result<Vec<Offer>> {
         }
 
         Some(Offer {
+            oid: id as OID,
             date: date,
-            kind: kind,
-            outcomes: outcomes,
-            inner_id: id as u64
+            game: game,
+            kind: Kind::Series,
+            outcomes: outcomes
         })
     }).collect();
 

@@ -7,9 +7,9 @@ use base::error::{Result};
 use base::session::Session;
 use base::timers::Periodic;
 use base::currency::Currency;
-use gamblers::Gambler;
-use events::{Offer, Outcome, Kind, DRAW};
-use events::kinds::*;
+use gamblers::{Gambler, Message};
+use gamblers::Message::*;
+use markets::{OID, Offer, Outcome, Game, Kind, DRAW};
 
 pub struct BetClub {
     session: Session,
@@ -17,7 +17,7 @@ pub struct BetClub {
 }
 
 struct State {
-    offers: HashMap<u64, Offer>,
+    offers: HashMap<OID, Offer>,
     events: Vec<Event>
 }
 
@@ -64,7 +64,7 @@ impl Gambler for BetClub {
         Ok(Currency::from(balance.d.Amount))
     }
 
-    fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+    fn watch(&self, cb: &Fn(Message)) -> Result<()> {
         // TODO(universome): Add fluctuations (cloudflare can spot us)
         for _ in Periodic::new(30) {
             let mut state = self.state.lock().unwrap();
@@ -72,7 +72,7 @@ impl Gambler for BetClub {
             state.events = try!(self.fetch_events());
 
             let fresh_offers: Vec<_> = state.events.iter().filter_map(get_offer).collect();
-            let fresh_ids: HashSet<_> = fresh_offers.iter().map(|o| o.inner_id).collect();
+            let fresh_ids: HashSet<_> = fresh_offers.iter().map(|o| o.oid).collect();
 
             // Remove outdated offers
             let outdated_ids: HashSet<_> = state.offers.keys()
@@ -82,19 +82,13 @@ impl Gambler for BetClub {
 
             for id in outdated_ids {
                 let offer = state.offers.remove(&id).unwrap();
-                cb(offer, false);
+                cb(Remove(offer.oid));
             }
 
             // Gather new offers
             for fresh_offer in fresh_offers {
-                if let Some(offer) = state.offers.get(&fresh_offer.inner_id) {
-                    if offer == &fresh_offer && offer.date == fresh_offer.date {
-                        continue; // It's just the same offer :(
-                    }
-                }
-
-                cb(fresh_offer.clone(), true);
-                state.offers.insert(fresh_offer.inner_id, fresh_offer);
+                cb(Upsert(fresh_offer.clone()));
+                state.offers.insert(fresh_offer.oid, fresh_offer);
             }
         }
 
@@ -103,7 +97,7 @@ impl Gambler for BetClub {
 
     fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
         let current_events = try!(self.fetch_events());
-        let event = current_events.iter().find(|e| e.Id == offer.inner_id as u32).unwrap();
+        let event = current_events.iter().find(|e| e.Id == offer.oid as u32).unwrap();
 
         match get_offer(event) {
             Some(offer) => Ok(offer.outcomes.into_iter().find(|o| o == outcome).is_some()),
@@ -114,7 +108,7 @@ impl Gambler for BetClub {
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
         let stake: f64 = stake.into();
         let state = try!(self.state.lock());
-        let event = state.events.iter().find(|e| e.Id == offer.inner_id as u32).unwrap();
+        let event = state.events.iter().find(|e| e.Id == offer.oid as u32).unwrap();
         let market = event.get_market().unwrap();
 
         let basket = if outcome.0 == event.TeamsGroup[0] { &market.Rates[0].AddToBasket }
@@ -271,14 +265,15 @@ fn get_offer(event: &Event) -> Option<Offer> {
         None => return None
     };
 
-    let kind = match event.CountryName.as_ref() {
-        "Dota II" => Kind::Dota2(Dota2::Series),
-        "StarCraft II" => Kind::StarCraft2(StarCraft2::Series),
-        "Counter-Strike" => Kind::CounterStrike(CounterStrike::Series),
-        "Heroes Of The Storm" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
-        "League of Legends" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
-        "Overwatch" => Kind::Overwatch(Overwatch::Series),
-        "World of Tanks" => Kind::WorldOfTanks(WorldOfTanks::Series),
+    let game = match event.CountryName.as_ref() {
+        "Dota II" => Game::Dota2,
+        "StarCraft II" => Game::StarCraft2,
+        "Counter-Strike" => Game::CounterStrike,
+        "Heroes Of The Storm" => Game::HeroesOfTheStorm,
+        "Hearthstone" => Game::Hearthstone,
+        "League of Legends" => Game::LeagueOfLegends,
+        "Overwatch" => Game::Overwatch,
+        "World of Tanks" => Game::WorldOfTanks,
         unsupported_type => {
             warn!("Found new type: {}", unsupported_type);
             return None;
@@ -295,9 +290,10 @@ fn get_offer(event: &Event) -> Option<Offer> {
         };
 
     Some(Offer {
-        inner_id: event.Id as u64,
+        oid: event.Id as OID,
         outcomes: outcomes,
-        kind: kind,
+        game: game,
+        kind: Kind::Series,
         date: date
     })
 }

@@ -11,9 +11,9 @@ use base::timers::Periodic;
 use base::parsing::{NodeRefExt, ElementDataExt};
 use base::session::{Session, Type};
 use base::currency::Currency;
-use gamblers::Gambler;
-use events::{Offer, Outcome, DRAW, Kind};
-use events::kinds::*;
+use gamblers::{Gambler, Message};
+use gamblers::Message::*;
+use markets::{OID, Offer, Outcome, DRAW, Game, Kind};
 
 pub struct EGB {
     session: Session,
@@ -65,9 +65,9 @@ impl Gambler for EGB {
         Ok(Currency::from(money))
     }
 
-    fn watch(&self, cb: &Fn(Offer, bool)) -> Result<()> {
+    fn watch(&self, cb: &Fn(Message)) -> Result<()> {
         #[derive(PartialEq, Eq, PartialOrd, Ord)]
-        struct TimeMarker(i32, u32);
+        struct TimeMarker(i32, OID);
 
         let mut map = HashMap::new();
         let mut heap = BinaryHeap::new();
@@ -84,7 +84,7 @@ impl Gambler for EGB {
                 if let Some(offer) = try!(extract_offer(bet)) {
                     map.insert(id, offer.clone());
                     heap.push(TimeMarker(-(offer.date as i32), id));
-                    cb(offer, true);
+                    cb(Upsert(offer))
                 }
             }
         }
@@ -114,7 +114,7 @@ impl Gambler for EGB {
                     if !map.contains_key(&id) {
                         map.insert(id, offer.clone());
                         heap.push(TimeMarker(-(offer.date as i32), id));
-                        cb(offer, true);
+                        cb(Upsert(offer));
                         continue;
                     }
 
@@ -124,11 +124,7 @@ impl Gambler for EGB {
                         heap.push(TimeMarker(-(offer.date as i32), id));
                     }
 
-                    if stored != offer {
-                         cb(stored, false);
-                         cb(offer.clone(), true);
-                    }
-
+                    cb(Upsert(offer.clone()));
                     map.insert(id, offer);
                 }
             }
@@ -151,7 +147,7 @@ impl Gambler for EGB {
                 // Remove offer only if the time marker corresponds to the last modification.
                 if map.get(&id).map_or(false, |o| o.date == -date as u32) {
                     let offer = map.remove(&id).unwrap();
-                    cb(offer, false);
+                    cb(Remove(offer.oid));
                 }
             }
         }
@@ -170,7 +166,7 @@ impl Gambler for EGB {
             .content_type(Type::Form);
 
         let response: PlaceBetResponse = try!(request.post(vec![
-            ("bet[id]", offer.inner_id.to_string().as_ref()),
+            ("bet[id]", offer.oid.to_string().as_ref()),
             ("bet[amount]", stake.to_string().as_ref()),
             ("bet[playmoney]", "false"),
             ("bet[coef]", outcome.1.to_string().as_ref()),
@@ -197,7 +193,7 @@ impl Gambler for EGB {
         }
 
         for bet in table.bets.unwrap() {
-            if bet.id != offer.inner_id as u32 {
+            if bet.id != offer.oid {
                 continue;
             }
 
@@ -244,7 +240,7 @@ struct Bet {
     coef_draw: String,
     gamer_1: Gamer,
     gamer_2: Gamer,
-    id: u32,
+    id: u64,
     winner: i32,
     live: u8,
     ut: u32
@@ -266,18 +262,18 @@ fn extract_offer(bet: Bet) -> Result<Option<Offer>> {
         return Ok(None);
     }
 
-    let kind = match bet.game.as_ref() {
-        "Counter-Strike" => Kind::CounterStrike(CounterStrike::Series),
-        "Dota2" => Kind::Dota2(Dota2::Series),
-        "Hearthstone" => Kind::Hearthstone(Hearthstone::Series),
-        "HeroesOfTheStorm" => Kind::HeroesOfTheStorm(HeroesOfTheStorm::Series),
-        "LoL" => Kind::LeagueOfLegends(LeagueOfLegends::Series),
-        "Overwatch" => Kind::Overwatch(Overwatch::Series),
-        "Smite" => Kind::Smite(Smite::Series),
-        "StarCraft2" => Kind::StarCraft2(StarCraft2::Series),
-        "WorldOfTanks" => Kind::WorldOfTanks(WorldOfTanks::Series),
-        kind => {
-            warn!("Unknown kind: {}", kind);
+    let game = match bet.game.as_ref() {
+        "Counter-Strike" => Game::CounterStrike,
+        "Dota2" => Game::Dota2,
+        "Hearthstone" => Game::Hearthstone,
+        "HeroesOfTheStorm" => Game::HeroesOfTheStorm,
+        "LoL" => Game::LeagueOfLegends,
+        "Overwatch" => Game::Overwatch,
+        "Smite" => Game::Smite,
+        "StarCraft2" => Game::StarCraft2,
+        "WorldOfTanks" => Game::WorldOfTanks,
+        game => {
+            warn!("Unknown game: {}", game);
             return Ok(None);
         }
     };
@@ -296,9 +292,10 @@ fn extract_offer(bet: Bet) -> Result<Option<Offer>> {
     }
 
     Ok(Some(Offer {
+        oid: bet.id,
         date: bet.date,
-        kind: kind,
-        outcomes: outcomes,
-        inner_id: bet.id as u64
+        game: game,
+        kind: Kind::Series,
+        outcomes: outcomes
     }))
 }
