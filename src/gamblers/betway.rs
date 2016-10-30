@@ -28,6 +28,7 @@ lazy_static! {
     static ref IP_ADDRESS_RE: Regex = Regex::new(r#"config\["ip"] = "([\d|.]+)";"#).unwrap();
     static ref SERVER_ID_RE: Regex = Regex::new(r#"config\["serverId"] = (\d+);"#).unwrap();
     static ref CLIENT_TYPE_RE: Regex = Regex::new(r#"clientType : (\d+),"#).unwrap();
+    static ref EVENT_ID_RE: Regex = Regex::new(r#"evt_(\d+)"#).unwrap();
 }
 
 impl BetWay {
@@ -44,13 +45,12 @@ impl BetWay {
     }
 
     fn get_events_ids(&self) -> Result<Vec<u32>> {
-        // First we should get list of leagues
         let main_page: NodeRef = try!(self.session.request("/").get());
-        let events_types = try!(extract_events_types(main_page));
-        let path = format!("/?u=/types/{}&m=win-draw-win,to-win", events_types.join("+"));
-        let response: NodeRef = try!(self.session.request(path.as_str()).get());
+        let leagues = try!(extract_leagues(main_page));
+        let path = format!("/?u=/types/{}&m=win-draw-win,to-win", leagues.join("+"));
+        let response: String = try!(self.session.request(path.as_str()).get());
 
-        extract_events_ids(response)
+        extract_events_ids(&response)
     }
 
     fn get_events(&self, events_ids: &Vec<u32>) -> Result<Vec<Event>> {
@@ -98,9 +98,9 @@ impl Gambler for BetWay {
     fn authorize(&self, username: &str, password: &str) -> Result<()> {
         let main_page: String = try!(self.session.request("/").get());
 
-        let server_id = try!(extract_server_id(&main_page).ok_or("Could not extract server_id"));
-        let ip_address = try!(extract_ip_address(&main_page).ok_or("Could not extract ip_address"));
-        let client_type = try!(extract_client_type(&main_page).ok_or("Could not extract client_type"));
+        let server_id = try!(extract_server_id(&main_page).ok_or("Can't extract server_id"));
+        let ip_address = try!(extract_ip_address(&main_page).ok_or("Can't extract ip_address"));
+        let client_type = try!(extract_client_type(&main_page).ok_or("Can't extract client_type"));
 
         let body = LoginRequestData {
             password: password,
@@ -426,28 +426,22 @@ fn extract_client_type(html_page: &String) -> Option<u32> {
             .and_then(|cap| (cap.parse::<u32>()).ok())
 }
 
-fn extract_events_types(page: NodeRef) -> Result<Vec<String>> {
-    let events_types = try!(page.query_all(".bet-chkbox"))
+fn extract_leagues(page: NodeRef) -> Result<Vec<String>> {
+    let leagues = try!(page.query_all(".bet-chkbox"))
         .filter_map(|event_type_node| event_type_node.get_attr("id").ok())
         .collect();
 
-    Ok(events_types)
+    Ok(leagues)
 }
 
-fn extract_events_ids(page: NodeRef) -> Result<Vec<u32>> {
-    let events_nodes = try!(page.query_all(".event_name"));
+fn extract_events_ids(page: &String) -> Result<Vec<u32>> {
     let mut events_ids = Vec::new();
 
-    for event_node in events_nodes {
-        let classes = try!(event_node.get_attr("class"));
-        // TODO(universome): why the fuck classes have to be mutable?
-        let mut classes = classes.split_whitespace();
-        let event_id: u32 = match classes.find(|c| c.starts_with("evt_")) {
-            Some(c) => try!(c.trim_left_matches("evt_").parse()),
-            None => continue
-        };
-
-        events_ids.push(event_id);
+    for cap_group in EVENT_ID_RE.captures_iter(page) {
+        match cap_group.at(1) {
+            Some(event_id) => events_ids.push(try!(event_id.parse::<u32>())),
+            None => {}
+        }
     }
 
     Ok(events_ids)
