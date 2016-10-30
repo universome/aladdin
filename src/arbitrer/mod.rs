@@ -138,7 +138,8 @@ fn realize_market(market: &[MarkedOffer]) {
     let mut min_profit = 1. / 0.;
     let mut max_profit = 0.;
 
-    info!("  Opportunity exists (effective margin: {:.2}), unbiased strategy:", margin);
+    info!("  Opportunity exists [{:?}] {:?} (effective margin: {:.2}), unbiased strategy:",
+          (market[0].1).game, (market[0].1).kind, margin);
 
     for &MarkedOutcome { market: m, outcome, rate, profit } in &outcomes {
         let host = &market[m].0.host;
