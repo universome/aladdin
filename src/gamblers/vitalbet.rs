@@ -30,7 +30,7 @@ define_encode_set! {
 impl VitalBet {
     pub fn new() -> VitalBet {
         VitalBet {
-            session: Session::new("vitalbet.com"),
+            session: Session::new("ebettle.com"),
             state: Mutex::new(State {
                 odds_to_events_ids: HashMap::new(),
                 events: HashMap::new(),
@@ -79,12 +79,13 @@ impl VitalBet {
 
 impl Gambler for VitalBet {
     fn authorize(&self, username: &str, password: &str) -> Result<()> {
-        let body = AuthData {
-            BrowserFingerPrint: 426682306,
-            Login: username,
-            Password: password,
-            RememberMe: true
-        };
+        let body = format!(r#"{{
+            "BrowserFingerPrint": 1697977978,
+            "Login": "{}",
+            "Password": "{}",
+            "RememberMe": true,
+            "UserName": ""
+        }}"#, username, password);
 
         self.session.request("/api/authorization/post").post::<String, _>(body).map(|_| ())
     }
@@ -163,14 +164,6 @@ struct State {
     events: HashMap<u32, Event>,
     offers: HashMap<u32, Offer>,
     changed_events: HashSet<u32>
-}
-
-#[derive(Serialize)]
-struct AuthData<'a> {
-    BrowserFingerPrint: i64,
-    Login: &'a str,
-    Password: &'a str,
-    RememberMe: bool
 }
 
 #[derive(Deserialize)]
