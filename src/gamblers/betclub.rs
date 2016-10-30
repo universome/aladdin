@@ -301,11 +301,12 @@ fn get_offer(event: &Event) -> Option<Offer> {
 fn get_outcomes(event: &Event, market: &Market) -> Option<Vec<Outcome>> {
     let mut outcomes = vec![
         Outcome(event.TeamsGroup[0].clone(), market.Rates[0].AddToBasket.r),
-        Outcome(event.TeamsGroup[1].clone(), market.Rates.last().unwrap().AddToBasket.r)
+        Outcome(event.TeamsGroup[1].clone(), market.Rates[2].AddToBasket.r)
     ];
 
-    if market.Rates.len() == 3 {
-        outcomes.push(Outcome(DRAW.to_owned(), market.Rates[1].AddToBasket.r));
+    let draw_odds = market.Rates[1].AddToBasket.r;
+    if draw_odds > 1. {
+        outcomes.push(Outcome(DRAW.to_owned(), draw_odds));
     }
 
     Some(outcomes)
