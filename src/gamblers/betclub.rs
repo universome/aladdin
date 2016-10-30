@@ -3,7 +3,7 @@
 use std::sync::Mutex;
 use std::collections::{HashMap, HashSet};
 
-use base::error::{Result};
+use base::error::{Result, Error};
 use base::session::Session;
 use base::timers::Periodic;
 use base::currency::Currency;
@@ -117,11 +117,14 @@ impl Gambler for BetClub {
         let event = &events[&offer.oid];
         let market = event.get_market().unwrap();
 
-        let basket = if outcome.0 == event.TeamsGroup[0] { &market.Rates[0].AddToBasket }
-                     else if outcome.0 == event.TeamsGroup[1] { &market.Rates[2].AddToBasket }
-                     else { &market.Rates[1].AddToBasket };
+        let x2 = if market.Rates.len() > 2 { 2 } else { 1 };
 
-        // Add bet to betslip
+        let basket = if outcome.0 == event.TeamsGroup[0] { &market.Rates[0].AddToBasket }
+                     else if outcome.0 == event.TeamsGroup[1] { &market.Rates[x2].AddToBasket }
+                     else if x2 == 2 { &market.Rates[1].AddToBasket }
+                     else { return Err(Error::from("Basket is not found")) };
+
+        // Add bet to betslip.
         let body = format!(r#"{{
             "eId": {event_id},
             "bId": {bet_id},
@@ -340,7 +343,7 @@ fn get_game(event: &Event) -> Option<Game> {
             "Overwatch" => Game::Overwatch,
             "World of Tanks" => Game::WorldOfTanks,
             unsupported => {
-                warn!("Found new type: {}", unsupported);
+                warn!("Found new type: \"{}\"", unsupported);
                 return None;
             }
         },
