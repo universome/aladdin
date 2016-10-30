@@ -11,30 +11,25 @@ use gamblers::{Gambler, Message};
 use gamblers::Message::*;
 use markets::{OID, Offer, Outcome, Game, Kind, DRAW};
 
+static SPORTS_IDS: &[u32] = &[300];
+
 pub struct BetClub {
     session: Session,
-    state: Mutex<State>
-}
-
-struct State {
-    offers: HashMap<OID, Offer>,
-    events: Vec<Event>
+    events: Mutex<HashMap<OID, Event>>
 }
 
 impl BetClub {
     pub fn new() -> BetClub {
         BetClub {
             session: Session::new("betclub3.com"),
-            state: Mutex::new(State {
-                offers: HashMap::new(),
-                events: Vec::new()
-            })
+            // TODO(universome): store only necessary info about the events.
+            events: Mutex::new(HashMap::new())
         }
     }
 
-    fn fetch_events(&self) -> Result<Vec<Event>> {
+    fn fetch_events(&self, sport_id: u32) -> Result<Vec<Event>> {
         let path = "/WebServices/BRService.asmx/GetTournamentEventsBySportByDuration";
-        let body = EventsRequest {culture: "en-us", sportId: 300, countHours: "12"};
+        let body = EventsRequest { culture: "en-us", sportId: sport_id, countHours: "12" };
 
         let response: TournamentsResponse = try!(self.session.request(path).post(body));
 
@@ -65,30 +60,35 @@ impl Gambler for BetClub {
     }
 
     fn watch(&self, cb: &Fn(Message)) -> Result<()> {
-        // TODO(universome): Add fluctuations (cloudflare can spot us)
-        for _ in Periodic::new(30) {
-            let mut state = self.state.lock().unwrap();
+        let mut active = SPORTS_IDS.iter().map(|_| HashSet::new()).collect::<Vec<_>>();
 
-            state.events = try!(self.fetch_events());
+        for _ in Periodic::new(24) {
+            for (sport_id, active) in SPORTS_IDS.iter().zip(active.iter_mut()) {
+                let recent = try!(self.fetch_events(*sport_id));
 
-            let fresh_offers: Vec<_> = state.events.iter().filter_map(get_offer).collect();
-            let fresh_ids: HashSet<_> = fresh_offers.iter().map(|o| o.oid).collect();
+                let data = recent.into_iter()
+                    .filter_map(|event| get_offer(&event).map(|offer| (offer, event)))
+                    .collect::<Vec<_>>();
 
-            // Remove outdated offers
-            let outdated_ids: HashSet<_> = state.offers.keys()
-                .filter(|id| !fresh_ids.contains(id))
-                .map(|id| id.clone())
-                .collect();
+                // Deactivate active offers.
+                for &(ref offer, _) in &data {
+                    active.remove(&offer.oid);
+                }
 
-            for id in outdated_ids {
-                let offer = state.offers.remove(&id).unwrap();
-                cb(Remove(offer.oid));
-            }
+                let mut events = self.events.lock().unwrap();
 
-            // Gather new offers
-            for fresh_offer in fresh_offers {
-                cb(Upsert(fresh_offer.clone()));
-                state.offers.insert(fresh_offer.oid, fresh_offer);
+                // Now `active` contains inactive.
+                for oid in active.drain() {
+                    events.remove(&oid);
+                    cb(Remove(oid));
+                }
+
+                // Add/update offers.
+                for (offer, event) in data {
+                    active.insert(offer.oid);
+                    events.insert(offer.oid, event);
+                    cb(Upsert(offer));
+                }
             }
         }
 
@@ -96,7 +96,7 @@ impl Gambler for BetClub {
     }
 
     fn check_offer(&self, offer: &Offer, outcome: &Outcome, _: Currency) -> Result<bool> {
-        let current_events = try!(self.fetch_events());
+        let current_events = try!(self.fetch_events(300));
         let event = current_events.iter().find(|e| e.Id == offer.oid as u32).unwrap();
 
         match get_offer(event) {
@@ -106,9 +106,8 @@ impl Gambler for BetClub {
     }
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
-        let stake: f64 = stake.into();
-        let state = try!(self.state.lock());
-        let event = state.events.iter().find(|e| e.Id == offer.oid as u32).unwrap();
+        let events = self.events.lock().unwrap();
+        let event = &events[&offer.oid];
         let market = event.get_market().unwrap();
 
         let basket = if outcome.0 == event.TeamsGroup[0] { &market.Rates[0].AddToBasket }
@@ -142,6 +141,8 @@ impl Gambler for BetClub {
             return Err(From::from(response));
         }
 
+        let stake: f64 = stake.into();
+
         // Place bet
         let body = format!(r#"{{
             "betAmount": {stake},
@@ -168,33 +169,33 @@ impl Gambler for BetClub {
     }
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize)]
 struct AuthRequest<'a> {
     login: &'a str ,
     password: &'a str
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct BalanceResponse {
     d: Balance
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct Balance {
     Amount: f64
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct TournamentsResponse {
     d: Vec<Tournament>
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct Tournament {
     EventsHeaders: Vec<Event>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct Event {
     Id: u32,
     Date: String,
@@ -221,7 +222,7 @@ impl Event {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct Market {
     Id: String,
     IsEnabled: bool,
@@ -230,13 +231,13 @@ struct Market {
     Caption: String
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct Rate {
     NameShort: String,
     AddToBasket: Basket
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct Basket {
     eId: u32,
     bId: u32,
@@ -247,7 +248,7 @@ struct Basket {
     fs: Option<f64>
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize)]
 struct EventsRequest<'a> {
     culture: &'a str,
     countHours: &'a str,
