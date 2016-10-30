@@ -96,7 +96,14 @@ impl Gambler for BetClub {
     }
 
     fn check_offer(&self, offer: &Offer, outcome: &Outcome, _: Currency) -> Result<bool> {
-        let current_events = try!(self.fetch_events(300));
+        let events = self.events.lock().unwrap();
+
+        let sport_id = match events.get(&offer.oid) {
+            Some(event) => event.SId,
+            None => return Ok(false)
+        };
+
+        let current_events = try!(self.fetch_events(sport_id));
         let event = current_events.iter().find(|e| e.Id == offer.oid as u32).unwrap();
 
         match get_offer(event) {
@@ -200,6 +207,7 @@ struct Event {
     Id: u32,
     Date: String,
     TeamsGroup: Vec<String>,
+    SId: u32,
     SportName: String,
     CountryName: String,
     Markets: Vec<Market>
