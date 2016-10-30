@@ -77,7 +77,7 @@ impl Gambler for XBet {
                     return Err(Error::from(message.Error));
                 }
 
-                let offers = grab_offers(message.Value);
+                let offers = message.Value.into_iter().filter_map(grab_offer).collect::<Vec<_>>();
 
                 // Deactivate active offers.
                 for offer in &offers {
@@ -147,13 +147,12 @@ impl Gambler for XBet {
             }
         }
 
-        let recent = grab_offers(vec![message.Value.unwrap()]);
-        if recent.is_empty() {
-            return Ok(false);
+        if let Some(recent) = grab_offer(message.Value.unwrap()) {
+            // TODO(loyd): change it after #78.
+            Ok(&recent == offer && recent.outcomes == offer.outcomes)
+        } else {
+            Ok(false)
         }
-
-        // TODO(loyd): change it after #78.
-        Ok(&recent[0] == offer && recent[0].outcomes == offer.outcomes)
     }
 }
 
@@ -212,47 +211,45 @@ struct PlaceBetResponse {
     Success: bool
 }
 
-fn grab_offers(infos: Vec<Info>) -> Vec<Offer> {
-    infos.into_iter().filter_map(|info| {
-        // I'm not sure, but `.B` looks like a block flag.
-        if info.Events.iter().any(|ev| ev.B && 0 < ev.T && ev.T <= 3) {
-            trace!("#{} is blocked (?)", info.Id);
-            return None;
-        }
+fn grab_offer(info: Info) -> Option<Offer> {
+    // I'm not sure, but `.B` looks like a block flag.
+    if info.Events.iter().any(|ev| ev.B && 0 < ev.T && ev.T <= 3) {
+        trace!("#{} is blocked (?)", info.Id);
+        return None;
+    }
 
-        let coef_1 = info.Events.iter().find(|ev| ev.T == 1).map(|ev| ev.C);
-        let coef_2 = info.Events.iter().find(|ev| ev.T == 3).map(|ev| ev.C);
+    let coef_1 = info.Events.iter().find(|ev| ev.T == 1).map(|ev| ev.C);
+    let coef_2 = info.Events.iter().find(|ev| ev.T == 3).map(|ev| ev.C);
 
-        if coef_1.is_none() || coef_2.is_none() {
-            return None;
-        }
+    if coef_1.is_none() || coef_2.is_none() {
+        return None;
+    }
 
-        let game = match game_from_info(&info) {
-            Some(game) => game,
-            None => return None
-        };
+    let game = match game_from_info(&info) {
+        Some(game) => game,
+        None => return None
+    };
 
-        let coef_draw = info.Events.iter().find(|ev| ev.T == 2).map(|ev| ev.C);
-        let date = info.Start;
-        let id = info.Id;
+    let coef_draw = info.Events.iter().find(|ev| ev.T == 2).map(|ev| ev.C);
+    let date = info.Start;
+    let id = info.Id;
 
-        let mut outcomes = vec![
-            Outcome(info.Opp1, coef_1.unwrap()),
-            Outcome(info.Opp2, coef_2.unwrap())
-        ];
+    let mut outcomes = vec![
+        Outcome(info.Opp1, coef_1.unwrap()),
+        Outcome(info.Opp2, coef_2.unwrap())
+    ];
 
-        if let Some(coef) = coef_draw {
-            outcomes.push(Outcome(DRAW.to_owned(), coef));
-        }
+    if let Some(coef) = coef_draw {
+        outcomes.push(Outcome(DRAW.to_owned(), coef));
+    }
 
-        Some(Offer {
-            oid: id as OID,
-            date: date,
-            game: game,
-            kind: Kind::Series,
-            outcomes: outcomes
-        })
-    }).collect()
+    Some(Offer {
+        oid: id as OID,
+        date: date,
+        game: game,
+        kind: Kind::Series,
+        outcomes: outcomes
+    })
 }
 
 fn game_from_info(info: &Info) -> Option<Game> {
@@ -305,7 +302,7 @@ fn game_from_info(info: &Info) -> Option<Game> {
             _ if info.ChampEng.contains("StarCraft") => Game::StarCraft2,
             "WarC" => return None,
             _ => {
-                warn!("Unknown eSport game: {}", info.ChampEng);
+                warn!("Unknown eSport game: \"{}\"", info.ChampEng);
                 return None;
             }
         },

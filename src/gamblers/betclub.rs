@@ -3,7 +3,7 @@
 use std::sync::Mutex;
 use std::collections::{HashMap, HashSet};
 
-use base::error::{Result};
+use base::error::{Result, Error};
 use base::session::Session;
 use base::timers::Periodic;
 use base::currency::Currency;
@@ -11,30 +11,25 @@ use gamblers::{Gambler, Message};
 use gamblers::Message::*;
 use markets::{OID, Offer, Outcome, Game, Kind, DRAW};
 
+static SPORTS_IDS: &[u32] = &[1, 2, 3, 4, 5, 6, 8, 9, 12, 15, 16, 257, 279, 296, 300];
+
 pub struct BetClub {
     session: Session,
-    state: Mutex<State>
-}
-
-struct State {
-    offers: HashMap<OID, Offer>,
-    events: Vec<Event>
+    events: Mutex<HashMap<OID, Event>>
 }
 
 impl BetClub {
     pub fn new() -> BetClub {
         BetClub {
             session: Session::new("betclub3.com"),
-            state: Mutex::new(State {
-                offers: HashMap::new(),
-                events: Vec::new()
-            })
+            // TODO(universome): store only necessary info about the events.
+            events: Mutex::new(HashMap::new())
         }
     }
 
-    fn fetch_events(&self) -> Result<Vec<Event>> {
+    fn fetch_events(&self, sport_id: u32) -> Result<Vec<Event>> {
         let path = "/WebServices/BRService.asmx/GetTournamentEventsBySportByDuration";
-        let body = EventsRequest {culture: "en-us", sportId: 300, countHours: "12"};
+        let body = EventsRequest { culture: "en-us", sportId: sport_id, countHours: "12" };
 
         let response: TournamentsResponse = try!(self.session.request(path).post(body));
 
@@ -65,30 +60,35 @@ impl Gambler for BetClub {
     }
 
     fn watch(&self, cb: &Fn(Message)) -> Result<()> {
-        // TODO(universome): Add fluctuations (cloudflare can spot us)
-        for _ in Periodic::new(30) {
-            let mut state = self.state.lock().unwrap();
+        let mut active = SPORTS_IDS.iter().map(|_| HashSet::new()).collect::<Vec<_>>();
 
-            state.events = try!(self.fetch_events());
+        for _ in Periodic::new(24) {
+            for (sport_id, active) in SPORTS_IDS.iter().zip(active.iter_mut()) {
+                let recent = try!(self.fetch_events(*sport_id));
 
-            let fresh_offers: Vec<_> = state.events.iter().filter_map(get_offer).collect();
-            let fresh_ids: HashSet<_> = fresh_offers.iter().map(|o| o.oid).collect();
+                let data = recent.into_iter()
+                    .filter_map(|event| get_offer(&event).map(|offer| (offer, event)))
+                    .collect::<Vec<_>>();
 
-            // Remove outdated offers
-            let outdated_ids: HashSet<_> = state.offers.keys()
-                .filter(|id| !fresh_ids.contains(id))
-                .map(|id| id.clone())
-                .collect();
+                // Deactivate active offers.
+                for &(ref offer, _) in &data {
+                    active.remove(&offer.oid);
+                }
 
-            for id in outdated_ids {
-                let offer = state.offers.remove(&id).unwrap();
-                cb(Remove(offer.oid));
-            }
+                let mut events = self.events.lock().unwrap();
 
-            // Gather new offers
-            for fresh_offer in fresh_offers {
-                cb(Upsert(fresh_offer.clone()));
-                state.offers.insert(fresh_offer.oid, fresh_offer);
+                // Now `active` contains inactive.
+                for oid in active.drain() {
+                    events.remove(&oid);
+                    cb(Remove(oid));
+                }
+
+                // Add/update offers.
+                for (offer, event) in data {
+                    active.insert(offer.oid);
+                    events.insert(offer.oid, event);
+                    cb(Upsert(offer));
+                }
             }
         }
 
@@ -96,7 +96,14 @@ impl Gambler for BetClub {
     }
 
     fn check_offer(&self, offer: &Offer, outcome: &Outcome, _: Currency) -> Result<bool> {
-        let current_events = try!(self.fetch_events());
+        let events = self.events.lock().unwrap();
+
+        let sport_id = match events.get(&offer.oid) {
+            Some(event) => event.SId,
+            None => return Ok(false)
+        };
+
+        let current_events = try!(self.fetch_events(sport_id));
         let event = current_events.iter().find(|e| e.Id == offer.oid as u32).unwrap();
 
         match get_offer(event) {
@@ -106,16 +113,18 @@ impl Gambler for BetClub {
     }
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
-        let stake: f64 = stake.into();
-        let state = try!(self.state.lock());
-        let event = state.events.iter().find(|e| e.Id == offer.oid as u32).unwrap();
+        let events = self.events.lock().unwrap();
+        let event = &events[&offer.oid];
         let market = event.get_market().unwrap();
 
-        let basket = if outcome.0 == event.TeamsGroup[0] { &market.Rates[0].AddToBasket }
-                     else if outcome.0 == event.TeamsGroup[1] { &market.Rates[2].AddToBasket }
-                     else { &market.Rates[1].AddToBasket };
+        let x2 = if market.Rates.len() > 2 { 2 } else { 1 };
 
-        // Add bet to betslip
+        let basket = if outcome.0 == event.TeamsGroup[0] { &market.Rates[0].AddToBasket }
+                     else if outcome.0 == event.TeamsGroup[1] { &market.Rates[x2].AddToBasket }
+                     else if x2 == 2 { &market.Rates[1].AddToBasket }
+                     else { return Err(Error::from("Basket is not found")) };
+
+        // Add bet to betslip.
         let body = format!(r#"{{
             "eId": {event_id},
             "bId": {bet_id},
@@ -141,6 +150,8 @@ impl Gambler for BetClub {
         if !response.contains("LinesID") {
             return Err(From::from(response));
         }
+
+        let stake: f64 = stake.into();
 
         // Place bet
         let body = format!(r#"{{
@@ -168,28 +179,28 @@ impl Gambler for BetClub {
     }
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize)]
 struct AuthRequest<'a> {
     login: &'a str ,
     password: &'a str
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct BalanceResponse {
     d: Balance
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct Balance {
     Amount: f64
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct TournamentsResponse {
     d: Vec<Tournament>
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct Tournament {
     EventsHeaders: Vec<Event>,
 }
@@ -199,6 +210,8 @@ struct Event {
     Id: u32,
     Date: String,
     TeamsGroup: Vec<String>,
+    SId: u32,
+    SportName: String,
     CountryName: String,
     Markets: Vec<Market>
 }
@@ -210,10 +223,7 @@ impl Event {
             None => return None
         };
 
-        if !market.IsEnabled
-        || !market.Rates.len() < 2
-        || market.Caption != "Result"
-        || self.TeamsGroup.len() < 2 {
+        if !market.IsEnabled || market.Caption != "Result" || self.TeamsGroup.len() < 2 {
             return None;
         }
 
@@ -247,7 +257,7 @@ struct Basket {
     fs: Option<f64>
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize)]
 struct EventsRequest<'a> {
     culture: &'a str,
     countHours: &'a str,
@@ -265,19 +275,9 @@ fn get_offer(event: &Event) -> Option<Offer> {
         None => return None
     };
 
-    let game = match event.CountryName.as_ref() {
-        "Dota II" => Game::Dota2,
-        "StarCraft II" => Game::StarCraft2,
-        "Counter-Strike" => Game::CounterStrike,
-        "Heroes Of The Storm" => Game::HeroesOfTheStorm,
-        "Hearthstone" => Game::Hearthstone,
-        "League of Legends" => Game::LeagueOfLegends,
-        "Overwatch" => Game::Overwatch,
-        "World of Tanks" => Game::WorldOfTanks,
-        unsupported_type => {
-            warn!("Found new type: {}", unsupported_type);
-            return None;
-        }
+    let game = match get_game(event) {
+        Some(game) => game,
+        None => return None
     };
 
     let date: u32 = match event.Date.trim_left_matches("/Date(").trim_right_matches(")/")
@@ -299,14 +299,58 @@ fn get_offer(event: &Event) -> Option<Offer> {
 }
 
 fn get_outcomes(event: &Event, market: &Market) -> Option<Vec<Outcome>> {
+    let x2 = if market.Rates.len() > 2 { 2 } else { 1 };
+
     let mut outcomes = vec![
         Outcome(event.TeamsGroup[0].clone(), market.Rates[0].AddToBasket.r),
-        Outcome(event.TeamsGroup[1].clone(), market.Rates.last().unwrap().AddToBasket.r)
+        Outcome(event.TeamsGroup[1].clone(), market.Rates[x2].AddToBasket.r)
     ];
 
-    if market.Rates.len() == 3 {
-        outcomes.push(Outcome(DRAW.to_owned(), market.Rates[1].AddToBasket.r));
+    if x2 == 2 {
+        let draw_odds = market.Rates[1].AddToBasket.r;
+
+        if draw_odds > 1. {
+            outcomes.push(Outcome(DRAW.to_owned(), draw_odds));
+        }
     }
 
     Some(outcomes)
+}
+
+fn get_game(event: &Event) -> Option<Game> {
+    Some(match event.SportName.as_str() {
+        "Basketball" => Game::Basketball,
+        "Baseball" => Game::Baseball,
+        "Tennis 3 set." | "Tennis 5-set." => Game::Tennis,
+        "Soccer" => Game::Football,
+        "Hockey" => Game::IceHockey,
+        "Volleyball" => Game::Volleyball,
+        "American football" => Game::AmericanFootball,
+        "Handball" => Game::Handball,
+        "Field hockey" => Game::FieldHockey,
+        "Water polo" => Game::WaterPolo,
+        "Badminton" => Game::Badminton,
+        "Futsal" => Game::Futsal,
+        "Snooker" => Game::Snooker,
+
+        "Electronic Sports" => match event.CountryName.as_str() {
+            "Dota II" => Game::Dota2,
+            "StarCraft II" => Game::StarCraft2,
+            "Counter-Strike" => Game::CounterStrike,
+            "Heroes Of The Storm" => Game::HeroesOfTheStorm,
+            "Hearthstone" => Game::Hearthstone,
+            "League of Legends" => Game::LeagueOfLegends,
+            "Overwatch" => Game::Overwatch,
+            "World of Tanks" => Game::WorldOfTanks,
+            unsupported => {
+                warn!("Found new type: \"{}\"", unsupported);
+                return None;
+            }
+        },
+
+        name => {
+            warn!("Unknown sport name: \"{}\"", name);
+            return None;
+        }
+    })
 }

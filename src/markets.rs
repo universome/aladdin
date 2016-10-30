@@ -99,7 +99,7 @@ impl Display for Offer {
 
 impl PartialEq for Offer {
     fn eq(&self, other: &Offer) -> bool {
-        if self.kind != other.kind {
+        if self.game != other.game || self.kind != other.kind {
             return false;
         }
 
@@ -127,6 +127,7 @@ impl Eq for Offer {}
 impl Hash for Offer {
     fn hash<H: Hasher>(&self, state: &mut H) {
         round_date(self.date).hash(state);
+        self.game.hash(state);
         self.kind.hash(state);
     }
 }
