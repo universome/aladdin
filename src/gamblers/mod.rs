@@ -44,7 +44,7 @@ macro_rules! gambler_map {
 pub fn new(host: &str) -> (&'static str, BoxedGambler) {
     gambler_map!(host,
         "egamingbets" => egamingbets::EGB,
-        "vitalbet" => vitalbet::VitalBet,
+        "ebettle" => vitalbet::VitalBet,
         "1xsporta" => xsporta::XBet,
         "cybbet" => cybbet::CybBet,
         "betway" => betway::BetWay,
