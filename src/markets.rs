@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::hash::{Hash, Hasher};
 use std::fmt::{Display, Formatter};
 use std::fmt::Result as FmtResult;
@@ -32,7 +34,44 @@ pub enum Game {
     Smite,
     StarCraft2,
     Vainglory,
-    WorldOfTanks
+    WorldOfTanks,
+
+    Football,
+    Tennis,
+    Basketball,
+    IceHockey,
+    Volleyball,
+    TableTennis,
+    Handball,
+    Badminton,
+    Baseball,
+    Snooker,
+    Pool,
+    Futsal,
+    WaterPolo,
+    Rugby,
+    Chess,
+    Boxing,
+    AmericanFootball,
+    Bandy,
+    Motorsport,
+    Biathlon,
+    Darts,
+    AlpineSkiing,
+    SkiJumping,
+    Skiing,
+    Formula,
+    FieldHockey,
+    Motorbikes,
+    Bowls,
+    BicycleRacing,
+    Poker,
+    Golf,
+    Netball,
+    MartialArts,
+    Cricket,
+    Floorball,
+    GaelicFootball,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
