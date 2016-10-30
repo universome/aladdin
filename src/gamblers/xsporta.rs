@@ -86,7 +86,7 @@ impl Gambler for XBet {
 
                 // Now `active` contains inactive.
                 for oid in active.drain() {
-                    cb(Remove(oid))
+                    cb(Remove(oid));
                 }
 
                 // Add/update offers.
@@ -147,10 +147,13 @@ impl Gambler for XBet {
             }
         }
 
-        let ref recent = grab_offers(vec![message.Value.unwrap()])[0];
+        let recent = grab_offers(vec![message.Value.unwrap()]);
+        if recent.is_empty() {
+            return Ok(false);
+        }
 
         // TODO(loyd): change it after #78.
-        Ok(recent == offer && recent.outcomes == offer.outcomes)
+        Ok(&recent[0] == offer && recent[0].outcomes == offer.outcomes)
     }
 }
 
@@ -182,6 +185,7 @@ struct Info {
 
 #[derive(Deserialize)]
 struct Event {
+    B: bool,    // It looks like a block flag.
     C: f64,
     T: u32
 }
@@ -210,6 +214,12 @@ struct PlaceBetResponse {
 
 fn grab_offers(infos: Vec<Info>) -> Vec<Offer> {
     infos.into_iter().filter_map(|info| {
+        // I'm not sure, but `.B` looks like a block flag.
+        if info.Events.iter().any(|ev| ev.B && 0 < ev.T && ev.T <= 3) {
+            trace!("#{} is blocked (?)", info.Id);
+            return None;
+        }
+
         let coef_1 = info.Events.iter().find(|ev| ev.T == 1).map(|ev| ev.C);
         let coef_2 = info.Events.iter().find(|ev| ev.T == 3).map(|ev| ev.C);
 
