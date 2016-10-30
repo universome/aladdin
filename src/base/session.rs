@@ -219,6 +219,8 @@ impl<'a> RequestBuilder<'a> {
     }
 
     fn _send(&self, client: &Client, body: &Option<String>) -> HyperResult<Response> {
+        trace!("{} {}", if body.is_none() { "GET" } else { "POST" }, self.url);
+
         let builder = match *body {
             Some(ref body) => client.post(&self.url).body(body.as_str()),
             None => client.get(&self.url)
