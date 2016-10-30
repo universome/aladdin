@@ -35,6 +35,7 @@ pub enum Game {
     StarCraft2,
     Vainglory,
     WorldOfTanks,
+    Fifa,
 
     Football,
     Tennis,
@@ -72,6 +73,8 @@ pub enum Game {
     Cricket,
     Floorball,
     GaelicFootball,
+    HorseRacing,
+    Hurling
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
