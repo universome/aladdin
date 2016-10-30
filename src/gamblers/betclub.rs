@@ -11,7 +11,7 @@ use gamblers::{Gambler, Message};
 use gamblers::Message::*;
 use markets::{OID, Offer, Outcome, Game, Kind, DRAW};
 
-static SPORTS_IDS: &[u32] = &[300];
+static SPORTS_IDS: &[u32] = &[1, 2, 3, 4, 5, 6, 8, 9, 12, 15, 16, 257, 279, 296, 300];
 
 pub struct BetClub {
     session: Session,
@@ -195,11 +195,12 @@ struct Tournament {
     EventsHeaders: Vec<Event>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct Event {
     Id: u32,
     Date: String,
     TeamsGroup: Vec<String>,
+    SportName: String,
     CountryName: String,
     Markets: Vec<Market>
 }
@@ -211,10 +212,7 @@ impl Event {
             None => return None
         };
 
-        if !market.IsEnabled
-        || !market.Rates.len() < 2
-        || market.Caption != "Result"
-        || self.TeamsGroup.len() < 2 {
+        if !market.IsEnabled || market.Caption != "Result" || self.TeamsGroup.len() < 2 {
             return None;
         }
 
@@ -222,7 +220,7 @@ impl Event {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct Market {
     Id: String,
     IsEnabled: bool,
@@ -231,13 +229,13 @@ struct Market {
     Caption: String
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct Rate {
     NameShort: String,
     AddToBasket: Basket
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct Basket {
     eId: u32,
     bId: u32,
@@ -266,19 +264,9 @@ fn get_offer(event: &Event) -> Option<Offer> {
         None => return None
     };
 
-    let game = match event.CountryName.as_ref() {
-        "Dota II" => Game::Dota2,
-        "StarCraft II" => Game::StarCraft2,
-        "Counter-Strike" => Game::CounterStrike,
-        "Heroes Of The Storm" => Game::HeroesOfTheStorm,
-        "Hearthstone" => Game::Hearthstone,
-        "League of Legends" => Game::LeagueOfLegends,
-        "Overwatch" => Game::Overwatch,
-        "World of Tanks" => Game::WorldOfTanks,
-        unsupported_type => {
-            warn!("Found new type: {}", unsupported_type);
-            return None;
-        }
+    let game = match get_game(event) {
+        Some(game) => game,
+        None => return None
     };
 
     let date: u32 = match event.Date.trim_left_matches("/Date(").trim_right_matches(")/")
@@ -300,15 +288,58 @@ fn get_offer(event: &Event) -> Option<Offer> {
 }
 
 fn get_outcomes(event: &Event, market: &Market) -> Option<Vec<Outcome>> {
+    let x2 = if market.Rates.len() > 2 { 2 } else { 1 };
+
     let mut outcomes = vec![
         Outcome(event.TeamsGroup[0].clone(), market.Rates[0].AddToBasket.r),
-        Outcome(event.TeamsGroup[1].clone(), market.Rates[2].AddToBasket.r)
+        Outcome(event.TeamsGroup[1].clone(), market.Rates[x2].AddToBasket.r)
     ];
 
-    let draw_odds = market.Rates[1].AddToBasket.r;
-    if draw_odds > 1. {
-        outcomes.push(Outcome(DRAW.to_owned(), draw_odds));
+    if x2 == 2 {
+        let draw_odds = market.Rates[1].AddToBasket.r;
+
+        if draw_odds > 1. {
+            outcomes.push(Outcome(DRAW.to_owned(), draw_odds));
+        }
     }
 
     Some(outcomes)
+}
+
+fn get_game(event: &Event) -> Option<Game> {
+    Some(match event.SportName.as_str() {
+        "Basketball" => Game::Basketball,
+        "Baseball" => Game::Baseball,
+        "Tennis 3 set." | "Tennis 5-set." => Game::Tennis,
+        "Soccer" => Game::Football,
+        "Hockey" => Game::IceHockey,
+        "Volleyball" => Game::Volleyball,
+        "American football" => Game::AmericanFootball,
+        "Handball" => Game::Handball,
+        "Field hockey" => Game::FieldHockey,
+        "Water polo" => Game::WaterPolo,
+        "Badminton" => Game::Badminton,
+        "Futsal" => Game::Futsal,
+        "Snooker" => Game::Snooker,
+
+        "Electronic Sports" => match event.CountryName.as_str() {
+            "Dota II" => Game::Dota2,
+            "StarCraft II" => Game::StarCraft2,
+            "Counter-Strike" => Game::CounterStrike,
+            "Heroes Of The Storm" => Game::HeroesOfTheStorm,
+            "Hearthstone" => Game::Hearthstone,
+            "League of Legends" => Game::LeagueOfLegends,
+            "Overwatch" => Game::Overwatch,
+            "World of Tanks" => Game::WorldOfTanks,
+            unsupported => {
+                warn!("Found new type: {}", unsupported);
+                return None;
+            }
+        },
+
+        name => {
+            warn!("Unknown sport name: \"{}\"", name);
+            return None;
+        }
+    })
 }
