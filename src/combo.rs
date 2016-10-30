@@ -7,6 +7,7 @@ use base::currency::Currency;
 #[derive(Debug)]
 pub struct Combo {
     pub date: u32,
+    pub game: String,
     pub kind: String,
     pub bets: Vec<Bet>
 }
@@ -49,6 +50,7 @@ const BET_SCHEMA: &str = "bet(
 
 const COMBO_SCHEMA: &str = "combo(
     date    INTEGER NOT NULL,
+    game    TEXT    NOT NULL,
     kind    TEXT    NOT NULL,
     bet_1   INTEGER NOT NULL,
     bet_2   INTEGER NOT NULL,
@@ -67,8 +69,8 @@ pub fn save(combo: Combo) {
     const INSERT_BET: &str = "INSERT INTO bet(host, id, title, expiry, coef, stake, profit, placed)
                               VALUES (:host, :id, :title, :expiry, :coef, :stake, :profit, :placed)";
 
-    const INSERT_COMBO: &str = "INSERT INTO combo(date, kind, bet_1, bet_2, bet_3)
-                                VALUES (:date, :kind, :bet_1, :bet_2, :bet_3)";
+    const INSERT_COMBO: &str = "INSERT INTO combo(date, game, kind, bet_1, bet_2, bet_3)
+                                VALUES (:date, :game, :kind, :bet_1, :bet_2, :bet_3)";
 
     let mut db = DB.lock().unwrap();
     let tx = db.transaction().unwrap();
@@ -92,6 +94,7 @@ pub fn save(combo: Combo) {
 
     tx.execute_named(INSERT_COMBO, &[
         (":date", &(combo.date as i64)),
+        (":game", &combo.game),
         (":kind", &combo.kind),
         (":bet_1", &row_ids[0]),
         (":bet_2", &row_ids[1]),
@@ -112,9 +115,9 @@ impl<'a, 'b> From<Row<'a, 'b>> for Combo {
     fn from(row: Row) -> Combo {
         // XXX(loyd): this code relies on column ordering.
         let bets = (0..3)
-            .take_while(|i| *i < 2 || row.get::<_, Option<i64>>(2 + i).is_some())
+            .take_while(|i| *i < 2 || row.get::<_, Option<i64>>(3 + i).is_some())
             .map(|i| {
-                let o = 5 + i * 8;
+                let o = 6 + i * 8;
 
                 Bet {
                     host:   row.get(o),
@@ -131,6 +134,7 @@ impl<'a, 'b> From<Row<'a, 'b>> for Combo {
 
         Combo {
             date: row.get::<_, i64>("date") as u32,
+            game: row.get("game"),
             kind: row.get("kind"),
             bets: bets
         }

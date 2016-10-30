@@ -241,6 +241,7 @@ fn save_combo(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
 
     combo::save(Combo {
         date: time::get_time().sec as u32,
+        game: format!("{:?}", (pairs[0].0).1.game),
         kind: format!("{:?}", (pairs[0].0).1.kind),
         bets: pairs.iter().zip(stakes.iter()).map(|(&(m, o), stake)| Bet {
             host: m.0.host.clone(),

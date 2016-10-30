@@ -154,8 +154,9 @@ fn render_combos(b: &mut String, combos: &[Combo]) {
     for combo in combos {
         let approx_expiry = combo.bets[0].expiry;
 
-        writeln!(b, "|`[{date}]`|{kind}|`{start_date}`|`{start_time}`|{sum}|",
+        writeln!(b, "|`[{date}]`|{game} {kind}|`{start_date}`|`{start_time}`|{sum}|",
                  date = format_date(combo.date, "%d/%m %R"),
+                 game = combo.game,
                  kind = combo.kind,
                  start_date = format_date(approx_expiry, "%d/%m"),
                  start_time = format_date(approx_expiry, "%R"),
