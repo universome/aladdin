@@ -28,6 +28,7 @@ lazy_static! {
     static ref IP_ADDRESS_RE: Regex = Regex::new(r#"config\["ip"] = "([\d|.]+)";"#).unwrap();
     static ref SERVER_ID_RE: Regex = Regex::new(r#"config\["serverId"] = (\d+);"#).unwrap();
     static ref CLIENT_TYPE_RE: Regex = Regex::new(r#"clientType : (\d+),"#).unwrap();
+    static ref EVENT_ID_RE: Regex = Regex::new(r#"evt_(\d+)"#).unwrap();
 }
 
 impl BetWay {
@@ -36,30 +37,33 @@ impl BetWay {
             session: Session::new("sports.betway.com"),
             state: Mutex::new(State {
                 events: HashMap::new(),
+                markets_to_events: HashMap::new(),
                 user_id: 0,
                 server_id: 0
             })
         }
     }
 
-    fn get_esports_events_ids(&self) -> Result<Vec<u32>> {
-        // First we should get list of leagues
+    fn get_events_ids(&self) -> Result<Vec<u32>> {
         let main_page: NodeRef = try!(self.session.request("/").get());
-        let events_types = try!(extract_events_types(main_page));
-        let path = format!("/?u=/types/{}", events_types.join("+"));
-        let response: NodeRef = try!(self.session.request(path.as_str()).get());
+        let leagues = try!(extract_leagues(main_page));
+        let path = format!("/?u=/types/{}&m=win-draw-win,to-win", leagues.join("+"));
+        let response: String = try!(self.session.request(path.as_str()).get());
 
-        extract_events_ids(response)
+        extract_events_ids(&response)
     }
 
     fn get_events(&self, events_ids: &Vec<u32>) -> Result<Vec<Event>> {
         let path = "/emoapi/emos";
         let body = EventsRequestData {
             eventIds: events_ids,
-            lang: "en"
+            lang: "en",
+            numMarkets: 1
         };
 
+        trace!("Asking {} events", events_ids.len());
         let response: EventsResponse = try!(self.session.request(path).post(body));
+        trace!("Got {} events", response.result.len());
 
         Ok(response.result)
     }
@@ -94,9 +98,9 @@ impl Gambler for BetWay {
     fn authorize(&self, username: &str, password: &str) -> Result<()> {
         let main_page: String = try!(self.session.request("/").get());
 
-        let server_id = try!(extract_server_id(&main_page).ok_or("Could not extract server_id"));
-        let ip_address = try!(extract_ip_address(&main_page).ok_or("Could not extract ip_address"));
-        let client_type = try!(extract_client_type(&main_page).ok_or("Could not extract client_type"));
+        let server_id = try!(extract_server_id(&main_page).ok_or("Can't extract server_id"));
+        let ip_address = try!(extract_ip_address(&main_page).ok_or("Can't extract ip_address"));
+        let client_type = try!(extract_client_type(&main_page).ok_or("Can't extract client_type"));
 
         let body = LoginRequestData {
             password: password,
@@ -120,37 +124,47 @@ impl Gambler for BetWay {
 
         let mut timer = Periodic::new(3600);
         let mut connection = try!(Connection::new("sports.betway.com/emoapi/push"));
-        let mut is_inited = false;
         let session = self.session.get_cookie("SESSION").unwrap();
 
         loop {
             let mut state = self.state.lock().unwrap();
 
-            if !is_inited || timer.next_if_elapsed() {
-                let events_ids = try!(self.get_esports_events_ids());
+            if timer.next_if_elapsed() {
+                let events_ids = try!(self.get_events_ids());
                 let current_events = try!(self.get_events(&events_ids));
+                let mut offers_amount = 0;
 
+                // Create offers from events and subscribe for updates.
                 for event in current_events {
                     if state.events.contains_key(&event.eventId) {
                         continue;
                     }
 
-                    if let Some(offer) = try!(create_offer_from_event(&event)) {
+                    let offers = event.markets.iter()
+                        .filter_map(|m| convert_market_to_offer(m, &event))
+                        .collect::<Vec<_>>();
+
+                    for offer in offers {
                         cb(Upsert(offer));
+                        offers_amount += 1;
                     }
 
                     let event_subscription = EventSubscription {
                         cmd: "eventSub",
                         session: &session,
-                        eventIds: vec![event.eventId.clone()]
+                        eventIds: [event.eventId.clone()]
                     };
 
                     try!(connection.send(event_subscription));
 
+                    // Save events and markets for future use.
+                    for market in &event.markets {
+                        state.markets_to_events.insert(market.marketId, event.eventId);
+                    }
                     state.events.insert(event.eventId, event);
                 }
 
-                is_inited = true;
+                info!("Extracted {} offers", offers_amount);
             }
 
             let update = try!(connection.receive::<Update>());
@@ -162,10 +176,12 @@ impl Gambler for BetWay {
                 _ => None
             } {
                 if apply_update(&mut event, &update) {
-                    if let Some(offer) = try!(create_offer_from_event(&event)) {
-                        cb(Upsert(offer));
-                    } else {
-                        cb(Remove(event.eventId as OID));
+                    for market in &event.markets {
+                        if let Some(offer) = convert_market_to_offer(&market, &event) {
+                            cb(Upsert(offer));
+                        } else {
+                            cb(Remove(event.eventId as OID));
+                        }
                     }
                 }
             }
@@ -174,9 +190,9 @@ impl Gambler for BetWay {
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
         let state = self.state.lock().unwrap();
-        let ref event = state.events.get(&(offer.oid as u32)).unwrap();
-        let market_id = get_good_market_id(&event).unwrap();
-        let market = event.markets.iter().find(|m| m.marketId == market_id).unwrap();
+        let event_id = state.markets_to_events.get(&(offer.oid as u32)).unwrap();
+        let ref event = state.events.get(&event_id).unwrap();
+        let market = event.markets.iter().find(|m| m.marketId == (offer.oid as u32)).unwrap();
         let outcome = market.outcomes.iter().find(|o| o.get_title() == outcome.0).unwrap();
 
         let path = "/betapi/v4/initiateBets";
@@ -236,6 +252,7 @@ impl Gambler for BetWay {
 
 struct State {
     events: HashMap<u32, Event>,
+    markets_to_events: HashMap<u32, u32>,
     user_id: u32,
     server_id: u32
 }
@@ -271,7 +288,8 @@ struct CustomerInfoResponse {
 #[derive(Serialize, Debug)]
 struct EventsRequestData<'a> {
     eventIds: &'a Vec<u32>,
-    lang: &'a str
+    lang: &'a str,
+    numMarkets: u32
 }
 
 #[derive(Deserialize, Debug)]
@@ -288,6 +306,7 @@ struct Event {
     markets: Vec<Market>,
     keywords: Vec<Keyword>,
     active: bool,
+    displayed: bool,
     live: bool
 }
 
@@ -328,7 +347,7 @@ struct Keyword {
 struct EventSubscription<'a> {
     cmd: &'a str,
     session: &'a String,
-    eventIds: Vec<u32>
+    eventIds: [u32; 1]
 }
 
 #[derive(Debug)]
@@ -407,102 +426,144 @@ fn extract_client_type(html_page: &String) -> Option<u32> {
             .and_then(|cap| (cap.parse::<u32>()).ok())
 }
 
-// We do not return u32 (although we should), because we will have to convert String > u32 > String
-fn extract_events_types(page: NodeRef) -> Result<Vec<String>> {
-    let events_types = try!(page.query_all(".cb-esports"))
+fn extract_leagues(page: NodeRef) -> Result<Vec<String>> {
+    let leagues = try!(page.query_all(".bet-chkbox"))
         .filter_map(|event_type_node| event_type_node.get_attr("id").ok())
         .collect();
 
-    Ok(events_types)
+    Ok(leagues)
 }
 
-fn extract_events_ids(page: NodeRef) -> Result<Vec<u32>> {
-    let events_nodes = try!(page.query_all(".event_name"));
+fn extract_events_ids(page: &String) -> Result<Vec<u32>> {
     let mut events_ids = Vec::new();
 
-    for event_node in events_nodes {
-        let classes = try!(event_node.get_attr("class"));
-        // TODO(universome): why the fuck classes have to be mutable?
-        let mut classes = classes.split_whitespace();
-        let event_id: u32 = match classes.find(|c| c.starts_with("evt_")) {
-            Some(c) => try!(c.trim_left_matches("evt_").parse()),
-            None => continue
-        };
-
-        events_ids.push(event_id);
+    for cap_group in EVENT_ID_RE.captures_iter(page) {
+        match cap_group.at(1) {
+            Some(event_id) => events_ids.push(try!(event_id.parse::<u32>())),
+            None => {}
+        }
     }
 
     Ok(events_ids)
 }
 
-// TODO(universome): We should return vec of possible offers.
-fn create_offer_from_event(event: &Event) -> Result<Option<Offer>> {
-    let ts = try!(time::strptime(&event.startAt, "%Y-%m-%dT%H:%M:%SZ")).to_timespec();
-    let game_and_kind = get_game_and_kind(event);
-    let outcomes = get_outcomes_from_event(event);
+fn convert_market_to_offer(market: &Market, event: &Event) -> Option<Offer> {
+    let outcomes = get_outcomes(market);
+    let ts = get_time(event);
+    let game = get_game(event);
+    let kind = get_kind(event);
 
-    if game_and_kind.is_none() || outcomes.is_none() || !event.active {
-        return Ok(None);
-    }
-
-    let (game, kind) = game_and_kind.unwrap();
-
-    Ok(Some(Offer {
-        oid: event.eventId as OID,
-        date: ts.sec as u32,
-        game: game,
-        kind: kind,
-        outcomes: outcomes.unwrap()
-    }))
-}
-
-fn get_game_and_kind(event: &Event) -> Option<(Game, Kind)> {
-    event.keywords.iter()
-        .find(|kw| kw.typeCname == "country")
-        .and_then(|kw| Some((match kw.cname.as_ref() {
-            "cs-go" => Game::CounterStrike,
-            "dota-2" => Game::Dota2,
-            "league-of-legends" => Game::LeagueOfLegends,
-            "hearthstone" => Game::Hearthstone,
-            "heroes-of-the-storm" => Game::HeroesOfTheStorm,
-            "overwatch" => Game::Overwatch,
-            "starcraft-2" => Game::StarCraft2,
-            "world-of-tanks" => Game::WorldOfTanks,
-            game => {
-                warn!("Found new category: {:?}", game);
-                return None;
-            }
-        }, Kind::Series)))
-}
-
-fn get_good_market_id(event: &Event) -> Option<u32> {
-    let markets = event.markets.iter()
-        .filter(|m| m.active && m.displayed)
-        .filter(|m| m.cname == "match-winner" || m.cname == "win-draw-win")
-        .collect::<Vec<_>>();
-
-    let market = match markets.len() {
-        0 => return None,
-        1 => markets[0],
-        _ => {
-            warn!("Can't choose market from event: {:?}", event);
-
-            return None;
-        }
-    };
-
-    if market.outcomes.iter().any(|o| o.priceDec.is_none()) {
+    if !market.active || !market.displayed
+    || !["to-win", "win-draw-win"].contains(&market.typeCname.as_str())
+    || !event.active  || !event.displayed
+    || outcomes.is_none() || ts.is_none() || game.is_none() || kind.is_none() {
         return None;
     }
 
-    Some(market.marketId)
+    Some(Offer {
+        oid: market.marketId as OID,
+        date: ts.unwrap(),
+        game: game.unwrap(),
+        kind: kind.unwrap(),
+        outcomes: outcomes.unwrap()
+    })
 }
 
-fn get_outcomes_from_event(event: &Event) -> Option<Vec<Outcome>> {
-    let market = match get_good_market_id(event) {
-        Some(id) => event.markets.iter().find(|m| m.marketId == id).unwrap(),
-        None => return None
-    };
+fn get_game(event: &Event) -> Option<Game> {
+    event.keywords.iter().find(|kw| kw.typeCname == "sport").and_then(|sport| {
+        Some(match sport.cname.as_str() {
+            "basketball" => Game::Basketball,
+            "darts" => Game::Darts,
+            "soccer" => Game::Football,
+            "ice-hockey" => Game::IceHockey,
+            "tennis" => Game::Tennis,
+            "horse-racing" => Game::HorseRacing,
+            "american-football" => Game::AmericanFootball,
+            "cricket" => Game::Cricket,
+            "rugby-union" | "rugby-league" => Game::Rugby, // TODO(universome)
+            "snooker" => Game::Snooker,
+            "golf" => Game::Golf,
+            "motor-sport" => Game::Motorbikes,
+            "baseball" => Game::Baseball,
+            "boxing" => Game::Boxing,
+            "volleyball" => Game::Volleyball,
+            "cycling" => Game::BicycleRacing,
+            "handball" => Game::Handball,
+            "ufc---martial-arts" => Game::MartialArts,
+            "bandy" => Game::Bandy,
+            "floorball" => Game::Floorball,
+            "futsal" => Game::Futsal,
+            "poker" => Game::Poker,
+            "pool" => Game::Pool,
+            "esports" => match event.keywords.iter().find(|kw| kw.typeCname == "country") {
+                Some(country) => match country.cname.as_str() {
+                    "cs-go" => Game::CounterStrike,
+                    "dota-2" => Game::Dota2,
+                    "league-of-legends" => Game::LeagueOfLegends,
+                    "hearthstone" => Game::Hearthstone,
+                    "heroes-of-the-storm" => Game::HeroesOfTheStorm,
+                    "overwatch" => Game::Overwatch,
+                    "starcraft-2" => Game::StarCraft2,
+                    "world-of-tanks" => Game::WorldOfTanks,
+                    "fifa" => Game::Fifa,
+                    game => {
+                        warn!("Found new game in {:?}: {:?}", sport, game);
+                        return None;
+                    }
+                },
+                None => return None
+            },
+            "gaelic-sports" => match event.keywords.iter().find(|kw| kw.typeCname == "country") {
+                Some(country) => match country.cname.as_str() {
+                    "hurling" => Game::Hurling,
+                    "gaelic-football" => Game::GaelicFootball,
+                    game => {
+                        warn!("Found new game in {:?}: {:?}", sport, game);
+                        return None;
+                    }
+                },
+                None => return None
+            },
+            "winter-sports" => match event.keywords.iter().find(|kw| kw.typeCname == "country") {
+                Some(country) => match country.cname.as_str() {
+                    "biathlon-men" | "biathlon-women" => Game::Hurling,
+                    "alpine-men" | "alpine-women" => Game::AlpineSkiing,
+                    "ski-jumping" => Game::SkiJumping,
+                    "cross-country-men" | "cross-country-women" => return None, // TODO(universome)
+                    game => {
+                        warn!("Found new game in {:?}: {:?}", sport, game);
+                        return None;
+                    }
+                },
+                None => return None
+            },
+            "politics" | "specials" => return None,
+            game => {
+                warn!("Found new game {:?}", game);
+                return None;
+            }
+        })
+    })
+}
+
+fn get_kind(event: &Event) -> Option<Kind> {
+    Some(Kind::Series)
+}
+
+fn get_time(event: &Event) -> Option<u32> {
+    match time::strptime(&event.startAt, "%Y-%m-%dT%H:%M:%SZ") {
+        Err(err) => {
+            warn!("Could not parse time ({:?}): {:?}", &event.startAt, err);
+            None
+        },
+        Ok(tm) => Some(tm.to_timespec().sec as u32)
+    }
+}
+
+fn get_outcomes(market: &Market) -> Option<Vec<Outcome>> {
+    if market.outcomes.iter().any(|o| o.priceDec.is_none()) {
+        return None;
+    }
 
     Some(market.outcomes.iter().map(|outcome| {
         // Converting "[NaVi]" into "NaVi".

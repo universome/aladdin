@@ -35,6 +35,7 @@ pub enum Game {
     StarCraft2,
     Vainglory,
     WorldOfTanks,
+    Fifa,
 
     Football,
     Tennis,
@@ -72,6 +73,8 @@ pub enum Game {
     Cricket,
     Floorball,
     GaelicFootball,
+    HorseRacing,
+    Hurling
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -84,7 +87,7 @@ impl Display for Offer {
         let tm = time::at_utc(time::Timespec::new(self.date as i64, 0)).to_local();
         let date = tm.strftime("%d/%m %R").unwrap();
 
-        try!(write!(f, "{} {:?} #{} (", date, self.kind, self.oid));
+        try!(write!(f, "{} [{:?}] {:?} #{} (", date, self.game, self.kind, self.oid));
 
         for (idx, outcome) in self.outcomes.iter().enumerate() {
             try!(write!(f, "{}{} x{}", if idx > 0 { "|" } else { "" }, outcome.0, outcome.1));
