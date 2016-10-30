@@ -71,8 +71,13 @@ impl Gambler for XBet {
         // The site uses 1-minute period, but for us it's too long.
         for _ in Periodic::new(24) {
             for &mut (ref path, ref mut active) in &mut state {
-                let message = try!(self.session.request(&path).get::<XMessage>());
-                let offers = try!(grab_offers(message));
+                let message = try!(self.session.request(&path).get::<Get1x2Response>());
+
+                if !message.Success {
+                    return Err(Error::from(message.Error));
+                }
+
+                let offers = grab_offers(message.Value);
 
                 // Deactivate active offers.
                 for offer in &offers {
@@ -131,21 +136,36 @@ impl Gambler for XBet {
     }
 
     fn check_offer(&self, offer: &Offer, _: &Outcome, _: Currency) -> Result<bool> {
-        let path = "/LineFeed/Get1x2?sportId=40&count=50&cnt=10&lng=en";
-        let message = try!(self.session.request(path).get::<XMessage>());
+        let path = format!("/LineFeed/GetGame?id={}&count=50&cnt=10&lng=en", offer.oid);
+        let message = try!(self.session.request(&path).get::<GetGameResponse>());
 
-        Ok(try!(grab_offers(message)).into_iter()
-            .find(|actual| actual.oid == offer.oid)
-            // TODO(loyd): change it after #78.
-            .map_or(true, |actual| &actual == offer && actual.outcomes == offer.outcomes))
+        if !message.Success || message.Value.is_none() {
+            if message.Error.contains("not found") {
+                return Ok(false);
+            } else {
+                return Err(Error::from(message.Error));
+            }
+        }
+
+        let ref recent = grab_offers(vec![message.Value.unwrap()])[0];
+
+        // TODO(loyd): change it after #78.
+        Ok(recent == offer && recent.outcomes == offer.outcomes)
     }
 }
 
 #[derive(Deserialize)]
-struct XMessage {
+struct Get1x2Response {
     Error: String,
     Success: bool,
     Value: Vec<Info>
+}
+
+#[derive(Deserialize)]
+struct GetGameResponse {
+    Error: String,
+    Success: bool,
+    Value: Option<Info>
 }
 
 #[derive(Deserialize)]
@@ -166,7 +186,7 @@ struct Event {
     T: u32
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize)]
 struct PlaceBetRequest {
     Events: Vec<PlaceBetRequestEvent>,
     Summ: String,
@@ -174,7 +194,7 @@ struct PlaceBetRequest {
     hash: String
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize)]
 struct PlaceBetRequestEvent {
     GameId: u32,
     Coef: f64,
@@ -182,18 +202,14 @@ struct PlaceBetRequestEvent {
     Type: u32
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct PlaceBetResponse {
     Error: String,
     Success: bool
 }
 
-fn grab_offers(message: XMessage) -> Result<Vec<Offer>> {
-    if !message.Success {
-        return Err(From::from(message.Error));
-    }
-
-    let offers = message.Value.into_iter().filter_map(|info| {
+fn grab_offers(infos: Vec<Info>) -> Vec<Offer> {
+    infos.into_iter().filter_map(|info| {
         let coef_1 = info.Events.iter().find(|ev| ev.T == 1).map(|ev| ev.C);
         let coef_2 = info.Events.iter().find(|ev| ev.T == 3).map(|ev| ev.C);
 
@@ -226,9 +242,7 @@ fn grab_offers(message: XMessage) -> Result<Vec<Offer>> {
             kind: Kind::Series,
             outcomes: outcomes
         })
-    }).collect();
-
-    Ok(offers)
+    }).collect()
 }
 
 fn game_from_info(info: &Info) -> Option<Game> {
