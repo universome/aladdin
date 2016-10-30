@@ -12,6 +12,9 @@ use gamblers::{Gambler, Message};
 use gamblers::Message::*;
 use markets::{OID, Offer, Outcome, DRAW, Game, Kind};
 
+static SPORTS_IDS: &[u32] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 21, 22,
+                              23, 24, 26, 27, 28, 30, 31, 32, 36, 38, 40, 41, 49, 56, 66, 67, 80];
+
 pub struct XBet {
     session: Session
 }
@@ -58,28 +61,39 @@ impl Gambler for XBet {
     }
 
     fn watch(&self, cb: &Fn(Message)) -> Result<()> {
-        let path = "/LineFeed/Get1x2?sportId=40&count=50&cnt=10&lng=en";
-        let mut active = HashSet::new();
+        let mut state = SPORTS_IDS.iter()
+            .map(|id| (
+                format!("/LineFeed/Get1x2?sportId={}&count=50&cnt=10&lng=en", id),
+                HashSet::new()
+            ))
+            .collect::<Vec<_>>();
 
         // The site uses 1-minute period, but for us it's too long.
-        for _ in Periodic::new(15) {
-            let message = try!(self.session.request(&path).get::<XMessage>());
-            let offers = try!(grab_offers(message));
+        for _ in Periodic::new(24) {
+            for &mut (ref path, ref mut active) in &mut state {
+                let message = try!(self.session.request(&path).get::<Get1x2Response>());
 
-            // Deactive active offers.
-            for offer in &offers {
-                active.remove(&offer.oid);
-            }
+                if !message.Success {
+                    return Err(Error::from(message.Error));
+                }
 
-            // Now `active` contains inactive.
-            for oid in active.drain() {
-                cb(Remove(oid))
-            }
+                let offers = grab_offers(message.Value);
 
-            // Add/update offers.
-            for offer in offers {
-                active.insert(offer.oid);
-                cb(Upsert(offer));
+                // Deactivate active offers.
+                for offer in &offers {
+                    active.remove(&offer.oid);
+                }
+
+                // Now `active` contains inactive.
+                for oid in active.drain() {
+                    cb(Remove(oid));
+                }
+
+                // Add/update offers.
+                for offer in offers {
+                    active.insert(offer.oid);
+                    cb(Upsert(offer));
+                }
             }
         }
 
@@ -122,21 +136,39 @@ impl Gambler for XBet {
     }
 
     fn check_offer(&self, offer: &Offer, _: &Outcome, _: Currency) -> Result<bool> {
-        let path = "/LineFeed/Get1x2?sportId=40&count=50&cnt=10&lng=en";
-        let message = try!(self.session.request(path).get::<XMessage>());
+        let path = format!("/LineFeed/GetGame?id={}&count=50&cnt=10&lng=en", offer.oid);
+        let message = try!(self.session.request(&path).get::<GetGameResponse>());
 
-        Ok(try!(grab_offers(message)).into_iter()
-            .find(|actual| actual.oid == offer.oid)
-            // TODO(loyd): change it after #78.
-            .map_or(true, |actual| &actual == offer && actual.outcomes == offer.outcomes))
+        if !message.Success || message.Value.is_none() {
+            if message.Error.contains("not found") {
+                return Ok(false);
+            } else {
+                return Err(Error::from(message.Error));
+            }
+        }
+
+        let recent = grab_offers(vec![message.Value.unwrap()]);
+        if recent.is_empty() {
+            return Ok(false);
+        }
+
+        // TODO(loyd): change it after #78.
+        Ok(&recent[0] == offer && recent[0].outcomes == offer.outcomes)
     }
 }
 
 #[derive(Deserialize)]
-struct XMessage {
+struct Get1x2Response {
     Error: String,
     Success: bool,
     Value: Vec<Info>
+}
+
+#[derive(Deserialize)]
+struct GetGameResponse {
+    Error: String,
+    Success: bool,
+    Value: Option<Info>
 }
 
 #[derive(Deserialize)]
@@ -144,6 +176,7 @@ struct Info {
     // TODO(loyd): what is the difference between `ConstId`, `Id` and `MainGameId`?
     Id: u32,
     ChampEng: String,
+    SportNameEng: String,
     Opp1: String,
     Opp2: String,
     Start: u32,
@@ -152,11 +185,12 @@ struct Info {
 
 #[derive(Deserialize)]
 struct Event {
+    B: bool,    // It looks like a block flag.
     C: f64,
     T: u32
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize)]
 struct PlaceBetRequest {
     Events: Vec<PlaceBetRequestEvent>,
     Summ: String,
@@ -164,7 +198,7 @@ struct PlaceBetRequest {
     hash: String
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize)]
 struct PlaceBetRequestEvent {
     GameId: u32,
     Coef: f64,
@@ -172,18 +206,20 @@ struct PlaceBetRequestEvent {
     Type: u32
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct PlaceBetResponse {
     Error: String,
     Success: bool
 }
 
-fn grab_offers(message: XMessage) -> Result<Vec<Offer>> {
-    if !message.Success {
-        return Err(From::from(message.Error));
-    }
+fn grab_offers(infos: Vec<Info>) -> Vec<Offer> {
+    infos.into_iter().filter_map(|info| {
+        // I'm not sure, but `.B` looks like a block flag.
+        if info.Events.iter().any(|ev| ev.B && 0 < ev.T && ev.T <= 3) {
+            trace!("#{} is blocked (?)", info.Id);
+            return None;
+        }
 
-    let offers = message.Value.into_iter().filter_map(|info| {
         let coef_1 = info.Events.iter().find(|ev| ev.T == 1).map(|ev| ev.C);
         let coef_2 = info.Events.iter().find(|ev| ev.T == 3).map(|ev| ev.C);
 
@@ -191,24 +227,9 @@ fn grab_offers(message: XMessage) -> Result<Vec<Offer>> {
             return None;
         }
 
-        let champ = &info.ChampEng;
-
-        let game = match &champ[..4] {
-            "CS:G" | "Coun" => Game::CounterStrike,
-            "Dota" => Game::Dota2,
-            "Hero" => Game::HeroesOfTheStorm,
-            "Hear" => Game::Hearthstone,
-            "Leag" | "LoL " => Game::LeagueOfLegends,
-            "Over" => Game::Overwatch,
-            "Smit" => Game::Smite,
-            "Star" => Game::StarCraft2,
-            "Worl" => Game::WorldOfTanks,
-            _ if champ.contains("StarCraft") => Game::StarCraft2,
-            "WarC" => return None,
-            _ => {
-                warn!("Unknown game: {}", info.ChampEng);
-                return None;
-            }
+        let game = match game_from_info(&info) {
+            Some(game) => game,
+            None => return None
         };
 
         let coef_draw = info.Events.iter().find(|ev| ev.T == 2).map(|ev| ev.C);
@@ -231,7 +252,67 @@ fn grab_offers(message: XMessage) -> Result<Vec<Offer>> {
             kind: Kind::Series,
             outcomes: outcomes
         })
-    }).collect();
+    }).collect()
+}
 
-    Ok(offers)
+fn game_from_info(info: &Info) -> Option<Game> {
+    Some(match info.SportNameEng.as_str() {
+        "Alpine Skiing" => Game::AlpineSkiing,
+        "American Football" => Game::AmericanFootball,
+        "Badminton" => Game::Badminton,
+        "Bandy" => Game::Bandy,
+        "Baseball" => Game::Baseball,
+        "Basketball" => Game::Basketball,
+        "Biathlon" => Game::Biathlon,
+        "Bicycle Racing" => Game::BicycleRacing,
+        "Bowls" => Game::Bowls,
+        "Boxing" => Game::Boxing,
+        "Chess" => Game::Chess,
+        "Cricket" => Game::Cricket,
+        "Darts" => Game::Darts,
+        "Field Hockey" => Game::FieldHockey,
+        "Floorball" => Game::Floorball,
+        "Football" => Game::Football,
+        "Formula 1" => Game::Formula,
+        "Futsal" => Game::Futsal,
+        "Gaelic Football" => Game::GaelicFootball,
+        "Golf" => Game::Golf,
+        "Handball" => Game::Handball,
+        "Ice Hockey" => Game::IceHockey,
+        "Martial Arts" => Game::MartialArts,
+        "Motorbikes" => Game::Motorbikes,
+        "Motorsport" => Game::Motorsport,
+        "Netball" => Game::Netball,
+        "Poker" => Game::Poker,
+        "Rugby" => Game::Rugby,
+        "Ski Jumping" => Game::SkiJumping,
+        "Skiing" => Game::Skiing,
+        "Snooker" => Game::Snooker,
+        "Table Tennis" => Game::TableTennis,
+        "Tennis" => Game::Tennis,
+        "Volleyball" => Game::Volleyball,
+
+        "eSports" => match &info.ChampEng[..4] {
+            "CS:G" | "Coun" => Game::CounterStrike,
+            "Dota" => Game::Dota2,
+            "Hero" => Game::HeroesOfTheStorm,
+            "Hear" => Game::Hearthstone,
+            "Leag" | "LoL " => Game::LeagueOfLegends,
+            "Over" => Game::Overwatch,
+            "Smit" => Game::Smite,
+            "Star" => Game::StarCraft2,
+            "Worl" => Game::WorldOfTanks,
+            _ if info.ChampEng.contains("StarCraft") => Game::StarCraft2,
+            "WarC" => return None,
+            _ => {
+                warn!("Unknown eSport game: {}", info.ChampEng);
+                return None;
+            }
+        },
+
+        name => {
+            warn!("Unknown sport name: \"{}\"", name);
+            return None;
+        }
+    })
 }
