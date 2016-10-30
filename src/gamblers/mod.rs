@@ -11,6 +11,7 @@ mod cybbet;
 mod betway;
 mod betclub;
 
+#[derive(Debug)]
 pub enum Message {
     Upsert(Offer),
     Remove(OID)
