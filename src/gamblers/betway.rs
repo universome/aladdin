@@ -164,7 +164,7 @@ impl Gambler for BetWay {
                     state.events.insert(event.eventId, event);
                 }
 
-                info!("Extracted {} offers", offers_amount);
+                trace!("Extracted {} offers", offers_amount);
             }
 
             let update = try!(connection.receive::<Update>());

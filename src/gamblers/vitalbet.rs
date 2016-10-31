@@ -71,7 +71,7 @@ impl VitalBet {
             .flat_map(|events| events)
             .collect::<Vec<_>>();
 
-        debug!("Gathered {} events", events.len());
+        trace!("Gathered {} events", events.len());
 
         Ok(events)
     }
@@ -546,14 +546,14 @@ fn provide_offers(state: &mut State, cb: &Fn(Message)) -> Result<()> {
             }
 
             if state.events[&updated_event_id].IsFinished.unwrap_or(false) {
-                debug!("Event is finished: {:?}", state.events[&updated_event_id]);
+                trace!("Event is finished: {:?}", state.events[&updated_event_id]);
 
                 state.events.remove(&updated_event_id);
             }
         }
     }
 
-    debug!("Upserted {} offers. Removed {} offers.", upserted, removed);
+    trace!("Upserted {} offers. Removed {} offers.", upserted, removed);
 
     Ok(())
 }

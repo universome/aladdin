@@ -57,7 +57,7 @@ impl Bucket {
                 market.swap_remove(index);
                 debug!("{} by {} is removed", marked.1, marked.0.host);
             } else {
-                warn!("There is no {} by {}", marked.1, marked.0.host);
+                warn!("Can't remove non-existent offer {} by {}", marked.1, marked.0.host);
             }
 
             market.is_empty()
