@@ -1,13 +1,13 @@
 use std::thread;
 use std::cmp::Ordering;
-use std::time::Instant;
 use std::sync::mpsc::{self, Sender, Receiver};
-use std::sync::{Arc, Mutex, RwLock, Condvar, RwLockReadGuard};
+use std::sync::{Arc, RwLock, RwLockReadGuard};
 use time;
 
 use constants::{CHECK_TIMEOUT, BASE_STAKE, MAX_STAKE, MIN_PROFIT, MAX_PROFIT};
 use constants::BOOKIES_AUTH;
 use base::currency::Currency;
+use base::barrier::Barrier;
 use markets::{Offer, Outcome, DRAW, fuzzy_eq};
 use combo::{self, Combo, Bet};
 
@@ -261,7 +261,7 @@ fn place_bets(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
     debug_assert_eq!(pairs.len(), stakes.len());
 
     // We cannot use `std::sync::Barrier` because it has small possibility for error handling.
-    let barrier = Arc::new((Mutex::new(pairs.len() as u32), Condvar::new()));
+    let barrier = Arc::new(Barrier::new(pairs.len() + 1));
 
     for (&(marked_offer, marked_outcome), &stake) in pairs.iter().zip(stakes.iter()) {
         let bookie = marked_offer.0;
@@ -270,31 +270,20 @@ fn place_bets(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
         let barrier = barrier.clone();
 
         thread::spawn(move || {
-            let &(ref count, ref cvar) = &*barrier;
-            place_bet(bookie, offer, outcome, stake, count, cvar);
+            place_bet(bookie, offer, outcome, stake, &*barrier);
         });
     }
 
-    // TODO(loyd): temporary solution, it blocks system during offer checking to prmarket race.
-    let mut count = barrier.0.lock().unwrap();
-    let start = Instant::now();
-
-    while *count > 0 {
-        let result = barrier.1.wait_timeout(count, *CHECK_TIMEOUT).unwrap();
-
-        if result.1.timed_out() || start.elapsed() >= *CHECK_TIMEOUT {
-            warn!("The time is up");
-            return;
-        }
-
-        count = result.0;
+    if !barrier.wait(*CHECK_TIMEOUT) {
+        warn!("The time is up");
+        return;
     }
 
     save_combo(&pairs, &stakes);
 }
 
 fn place_bet(bookie: &'static Bookie, offer: Offer, outcome: Outcome, stake: Currency,
-             count: &Mutex<u32>, cvar: &Condvar)
+             barrier: &Barrier)
 {
     struct Guard {
         bookie: &'static Bookie,
@@ -333,26 +322,11 @@ fn place_bet(bookie: &'static Bookie, offer: Offer, outcome: Outcome, stake: Cur
         None => return
     }
 
-    let mut count = count.lock().unwrap();
-    *count -= 1;
-
-    if *count > 0 {
-        // Wait for the end of the check of other offers.
-        while *count > 0 {
-            let result = cvar.wait_timeout(count, *CHECK_TIMEOUT).unwrap();
-            count = result.0;
-
-            // Either the time is up or some thread fails.
-            if result.1.timed_out() {
-                guard.done = true;
-                return;
-            }
-        }
-    } else {
-        cvar.notify_all();
+    // Either the time is up or some thread fails.
+    if !barrier.wait(*CHECK_TIMEOUT) {
+        guard.done = true;
+        return;
     }
-
-    drop(count);
 
     if !bookie.glance_offer(&offer) {
         // TODO(loyd): abort the whole betting process.
