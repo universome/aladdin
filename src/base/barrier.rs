@@ -2,32 +2,46 @@ use std::sync::{Mutex, Condvar};
 use std::time::Duration;
 
 pub struct Barrier {
-    count: Mutex<usize>,
+    n: u32,
+    state: Mutex<State>,
     cvar: Condvar
 }
 
+struct State {
+    count: u32,
+    generation: u32
+}
+
 impl Barrier {
-    pub fn new(count: usize) -> Barrier {
+    pub fn new(n: u32) -> Barrier {
         Barrier {
-            count: Mutex::new(count),
+            n: n,
+            state: Mutex::new(State {
+                count: 0,
+                generation: 0
+            }),
             cvar: Condvar::new()
         }
     }
 
     pub fn wait(&self, timeout: Duration) -> bool {
-        let mut count = self.count.lock().unwrap();
-        *count -= 1;
+        let mut state = self.state.lock().unwrap();
+        state.count += 1;
 
-        if *count > 0 {
-            while *count > 0 {
-                let result = self.cvar.wait_timeout(count, timeout).unwrap();
-                count = result.0;
+        let generation = state.generation;
+
+        if state.count < self.n {
+            while generation == state.generation && state.count < self.n {
+                let result = self.cvar.wait_timeout(state, timeout).unwrap();
+                state = result.0;
 
                 if result.1.timed_out() {
                     return false;
                 }
             }
         } else {
+            state.count = 0;
+            state.generation += 1;
             self.cvar.notify_all();
         }
 
@@ -44,7 +58,7 @@ fn test_barrier() {
     const N: usize = 10;
 
     let long = Duration::new(42, 0);
-    let barrier = Arc::new(Barrier::new(N));
+    let barrier = Arc::new(Barrier::new(N as u32));
     let (tx, rx) = channel();
 
     for _ in 0..N-1 {
@@ -73,7 +87,7 @@ fn test_barrier_timeout() {
     use std::thread;
     use std::time::Instant;
 
-    const N: usize = 5;
+    const N: u32 = 5;
 
     let barrier = Arc::new(Barrier::new(N + 1));
 
@@ -87,7 +101,7 @@ fn test_barrier_timeout() {
             let is_ok = barrier.wait(timeout);
 
             assert!(!is_ok);
-            assert!(start.elapsed() < timeout);
+            assert!(start.elapsed() >= timeout);
         });
     }
 }

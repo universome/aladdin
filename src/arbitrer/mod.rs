@@ -261,7 +261,7 @@ fn place_bets(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
     debug_assert_eq!(pairs.len(), stakes.len());
 
     // We cannot use `std::sync::Barrier` because it has small possibility for error handling.
-    let barrier = Arc::new(Barrier::new(pairs.len() + 1));
+    let barrier = Arc::new(Barrier::new(pairs.len() as u32 + 1));
 
     for (&(marked_offer, marked_outcome), &stake) in pairs.iter().zip(stakes.iter()) {
         let bookie = marked_offer.0;
