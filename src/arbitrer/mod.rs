@@ -260,7 +260,6 @@ fn save_combo(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
 fn place_bets(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
     debug_assert_eq!(pairs.len(), stakes.len());
 
-    // We cannot use `std::sync::Barrier` because it has small possibility for error handling.
     let barrier = Arc::new(Barrier::new(pairs.len() as u32 + 1));
 
     for (&(marked_offer, marked_outcome), &stake) in pairs.iter().zip(stakes.iter()) {
@@ -274,7 +273,8 @@ fn place_bets(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
         });
     }
 
-    if !barrier.wait(*CHECK_TIMEOUT) {
+    // Yes, twice.
+    if !barrier.wait(*CHECK_TIMEOUT) || !barrier.wait(*CHECK_TIMEOUT) {
         warn!("The time is up");
         return;
     }
@@ -329,8 +329,14 @@ fn place_bet(bookie: &'static Bookie, offer: Offer, outcome: Outcome, stake: Cur
     }
 
     if !bookie.glance_offer(&offer) {
-        // TODO(loyd): abort the whole betting process.
         error!("Ooops, one of the offers is rotten!");
+        return;
+    }
+
+    // Some thread fails.
+    if !barrier.wait(*CHECK_TIMEOUT) {
+        guard.done = true;
+        return;
     }
 
     let oid = offer.oid;
