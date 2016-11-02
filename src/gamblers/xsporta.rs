@@ -288,6 +288,7 @@ fn game_from_info(info: &Info) -> Option<Game> {
         "Table Tennis" => Game::TableTennis,
         "Tennis" => Game::Tennis,
         "Volleyball" => Game::Volleyball,
+        "Water Polo" => Game::WaterPolo,
 
         "eSports" => match &info.ChampEng[..4] {
             "CS:G" | "Coun" => Game::CounterStrike,
