@@ -310,6 +310,8 @@ fn place_bet(bookie: &'static Bookie, offer: Offer, outcome: Outcome, stake: Cur
     };
 
     if !bookie.glance_offer(&offer) {
+        error!("Ooops, one of the offers is rotten before the check!");
+        guard.done = true;
         return;
     }
 
@@ -329,7 +331,8 @@ fn place_bet(bookie: &'static Bookie, offer: Offer, outcome: Outcome, stake: Cur
     }
 
     if !bookie.glance_offer(&offer) {
-        error!("Ooops, one of the offers is rotten!");
+        error!("Ooops, one of the offers is rotten after the check!");
+        guard.done = true;
         return;
     }
 
