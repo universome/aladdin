@@ -9,7 +9,7 @@ USER=aladdin
 HOST=46.101.244.208
 DIR=\~
 MAIN=aladdin
-LOG=aladdin.log
+LOG_FILE=aladdin.log
 ENV="RUST_LOG=${RUST_LOG:=aladdin=info} RUST_BACKTRACE=1 TZ='Europe/Moscow'"
 
 if [ $MODE == release ]; then
@@ -21,9 +21,9 @@ function remote {
 }
 
 STATUS_CMD="start-stop-daemon --status --chdir $DIR --exec $MAIN"
-START_CMD="$ENV start-stop-daemon --start --oknodo --no-close --background --chdir $DIR --exec $MAIN > $LOG 2>&1"
+START_CMD="$ENV start-stop-daemon --start --oknodo --no-close --background --chdir $DIR --exec $MAIN > $LOG_FILE 2>&1"
 STOP_CMD="start-stop-daemon --stop --oknodo --retry 10 --chdir $DIR --exec $MAIN"
-LOG_CMD="less -R +F $LOG"
+LOG_CMD="less -R +F $LOG_FILE"
 
 case "$1" in
     deploy)
@@ -45,6 +45,7 @@ case "$1" in
     start) remote "$START_CMD" ;;
     stop) remote "$STOP_CMD" ;;
     restart) remote "$STOP_CMD && $START_CMD" ;;
+    fetch-log) scp $USER@$HOST:$DIR/$LOG_FILE . ;;
 
     *)
         echo "Usage: "$1" {deploy|log|status|start|stop|restart}"
