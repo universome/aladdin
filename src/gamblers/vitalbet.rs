@@ -87,7 +87,14 @@ impl Gambler for VitalBet {
             "UserName": ""
         }}"#, username, password);
 
-        self.session.request("/api/authorization/post").post::<String, _>(body).map(|_| ())
+        let request = self.session.request("/api/authorization/post");
+        let response = try!(request.post::<String, _>(body));
+
+        if response.contains(r#""HasErrors":true"#) {
+            Err(Error::from(response))
+        } else {
+            Ok(())
+        }
     }
 
     fn check_balance(&self) -> Result<Currency> {
