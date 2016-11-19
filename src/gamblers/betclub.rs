@@ -33,7 +33,12 @@ impl BetClub {
 
         let response: TournamentsResponse = try!(self.session.request(path).post(body));
 
-        Ok(response.d.into_iter().flat_map(|t| t.EventsHeaders).collect())
+        let events = response.d.into_iter()
+            .filter(|t| !t.Name.contains("Statistics"))
+            .flat_map(|t| t.EventsHeaders)
+            .collect();
+
+        Ok(events)
     }
 }
 
@@ -181,7 +186,7 @@ impl Gambler for BetClub {
 
 #[derive(Serialize)]
 struct AuthRequest<'a> {
-    login: &'a str ,
+    login: &'a str,
     password: &'a str
 }
 
@@ -203,6 +208,7 @@ struct TournamentsResponse {
 #[derive(Deserialize)]
 struct Tournament {
     EventsHeaders: Vec<Event>,
+    Name: String
 }
 
 #[derive(Deserialize, Debug)]
