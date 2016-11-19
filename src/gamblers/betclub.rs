@@ -327,6 +327,8 @@ fn get_game(event: &Event) -> Option<Game> {
     Some(match event.SportName.as_str() {
         "Basketball" => Game::Basketball,
         "Baseball" => Game::Baseball,
+        "Boxing" => Game::Boxing,
+        "Mixed Martial Arts" => Game::MartialArts,
         "Tennis 3 set." | "Tennis 5-set." => Game::Tennis,
         "Soccer" => Game::Football,
         "Hockey" => Game::IceHockey,
