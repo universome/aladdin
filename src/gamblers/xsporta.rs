@@ -295,7 +295,7 @@ fn game_from_info(info: &Info) -> Option<Game> {
             "Dota" => Game::Dota2,
             "Hero" => Game::HeroesOfTheStorm,
             "Hear" => Game::Hearthstone,
-            "Leag" | "LoL " => Game::LeagueOfLegends,
+            "Leag" | "LoL " | "LoL." => Game::LeagueOfLegends,
             "Over" => Game::Overwatch,
             "Smit" => Game::Smite,
             "Star" => Game::StarCraft2,
