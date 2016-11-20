@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::io::Read;
-use std::io::ErrorKind::{WouldBlock, TimedOut};
+use std::io::ErrorKind::{WouldBlock, TimedOut, ConnectionAborted};
 use std::time::{Duration};
 use time;
 use std::sync::Mutex;
@@ -189,10 +189,13 @@ impl<'a> RequestBuilder<'a> {
 
             // Check the timeout.
             if let Err(HyperError::Io(ref io)) = result {
-                let kind = io.kind();
+                let need_retry = match io.kind() {
+                    WouldBlock | TimedOut | ConnectionAborted => true,
+                    _ => false
+                };
 
-                if retries > 0 && (kind == WouldBlock || kind == TimedOut) {
-                    warn!("Retrying {}...", self.url);
+                if need_retry && retries > 0 {
+                    warn!("Retrying {} due to {}...", self.url, io);
                     retries -= 1;
                     continue;
                 }
