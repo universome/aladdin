@@ -454,27 +454,31 @@ fn get_game(event: &Event) -> Option<Game> {
             "Overwatch" => Game::Overwatch,
             "Halo" => Game::Halo,
             "World of Tanks" => Game::WorldOfTanks,
-            // "CrossFire" => Game::CrossFire,
             "Vainglory" => Game::Vainglory,
             game => {
                 warn!("New game in vitalbet eSports: {:?}", game);
                 return None;
             }
         },
-        "Soccer" | "Football" => Game::Football,
-        "Basketball" => Game::Basketball,
-        "Tennis" => Game::Tennis,
-        "Table Tennis" => Game::TableTennis,
-        "Volleyball" => Game::Volleyball,
-        "Ice Hockey" => Game::IceHockey,
-        "Handball" => Game::Handball,
-        "Baseball" => Game::Baseball,
+        "Alpine Skiing" => Game::AlpineSkiing,
         "American Football" => Game::AmericanFootball,
-        "Snooker" => Game::Snooker,
-        "MMA" => Game::MartialArts,
+        "Bandy" => Game::Bandy,
+        "Baseball" => Game::Baseball,
+        "Basketball" => Game::Basketball,
         "Boxing" => Game::Boxing,
-        "Formula 1" => Game::Formula,
         "Chess" => Game::Chess,
+        "Formula 1" => Game::Formula,
+        "Golf" => Game::Golf,
+        "Handball" => Game::Handball,
+        "Ice Hockey" => Game::IceHockey,
+        "MMA" => Game::MartialArts,
+        "Rugby Union" => Game::Rugby,
+        "Ski Jumping" => Game::SkiJumping,
+        "Snooker" => Game::Snooker,
+        "Soccer" | "Football" => Game::Football,
+        "Table Tennis" => Game::TableTennis,
+        "Tennis" => Game::Tennis,
+        "Volleyball" => Game::Volleyball,
         game => {
             warn!("New game on vitalbet: {:?}", game);
             return None;
