@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use std::result::Result as StdResult;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Mutex;
 use serde::{Deserialize, Deserializer};
 use serde_json as json;
@@ -32,11 +32,9 @@ impl VitalBet {
         VitalBet {
             session: Session::new("ebettle.com"),
             state: Mutex::new(State {
-                odds_to_events_ids: HashMap::new(),
-                markets_to_events_ids: HashMap::new(),
-                events: HashMap::new(),
-                offers: HashMap::new(),
-                changed_events: HashSet::new()
+                odds_to_events: HashMap::new(),
+                markets_to_events: HashMap::new(),
+                events: HashMap::new()
             })
         }
     }
@@ -115,30 +113,53 @@ impl Gambler for VitalBet {
             let mut state = try!(self.state.lock());
 
             if timer.next_if_elapsed() {
-                let events = try!(self.get_events());
+                state.odds_to_events = HashMap::new();
+                state.markets_to_events = HashMap::new();
 
-                state.odds_to_events_ids = HashMap::new();
-                state.markets_to_events_ids = HashMap::new();
+                let current_events = try!(self.get_events());
 
-                for event in events {
-                    try!(apply_event_update(&mut *state, event));
+                for event in current_events {
+                    if let Some(offer) = try!(create_offer(&event)) {
+                        cb(Upsert(offer));
+                    }
+
+                    // Save data into state.
+                    if let Some(ref odds) = event.PreviewOdds {
+                        for odd in odds {
+                            state.odds_to_events.insert(odd.ID, event.ID);
+                        }
+                    };
+
+                    if let Some(ref market) = event.PreviewMarket {
+                        state.markets_to_events.insert(market.ID, event.ID);
+                    };
+
+                    state.events.insert(event.ID, event);
                 }
-
-                try!(provide_offers(&mut *state, cb));
             }
 
-            let updates: PollingResponse = try!(self.session.request(&polling_path).get());
+            let messages = try!(self.session.request(&polling_path).get::<PollingResponse>());
+            let updates = flatten_updates(messages.M);
 
-            try!(apply_updates(&mut *state, updates.M));
-            try!(provide_offers(&mut *state, cb));
+            for update in updates {
+                if let Some(mut event) = find_event_for_update(&mut state, &update) {
+                    if apply_update(&mut event, &update) {
+                        if let Some(offer) = try!(create_offer(&event)) {
+                            cb(Upsert(offer));
+                        } else {
+                            cb(Remove(event.ID as OID));
+                        }
+                    }
+                }
+            }
         }
     }
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
         let state = &*try!(self.state.lock());
-        let event = state.events.get(&(offer.oid as u32)).unwrap();
+        let event = &state.events[&(offer.oid as u32)];
         let outcome_id = event.PreviewOdds.as_ref().unwrap().iter()
-            .find(|o| o.Title == outcome.0)
+            .find(|o| o.Title == outcome.0 || (outcome.0 == DRAW && o.Title == "Draw"))
             .unwrap().ID;
 
         let request_data = PlaceBetRequest {
@@ -169,11 +190,9 @@ impl Gambler for VitalBet {
 
 #[derive(Debug)]
 struct State {
-    odds_to_events_ids: HashMap<u32, u32>,
-    markets_to_events_ids: HashMap<u32, u32>,
-    events: HashMap<u32, Event>,
-    offers: HashMap<u32, Offer>,
-    changed_events: HashSet<u32>
+    odds_to_events: HashMap<u32, u32>,
+    markets_to_events: HashMap<u32, u32>,
+    events: HashMap<u32, Event>
 }
 
 #[derive(Deserialize)]
@@ -246,8 +265,7 @@ enum PollingMessage {
     PrematchOddsUpdateMessage(PrematchOddsUpdateMessage),
     PrematchMarketsUpdateMessage(PrematchMarketsUpdateMessage),
 
-    UnsupportedUpdate(UnsupportedUpdate)
-
+    UnsupportedUpdateMessage(UnsupportedUpdateMessage)
 }
 
 impl Deserialize for PollingMessage {
@@ -255,7 +273,7 @@ impl Deserialize for PollingMessage {
         let result: json::Value = try!(Deserialize::deserialize(d));
 
         if result.find("M").map_or(false, json::Value::is_string) {
-            return Ok(PM::UnsupportedUpdate(UnsupportedUpdate("Even no M".to_string())));
+            return Ok(PM::UnsupportedUpdateMessage(UnsupportedUpdateMessage("Even no M".to_string())));
         }
 
         let update_type = result.find("M").unwrap().as_str().unwrap_or("No update type").to_string();
@@ -267,7 +285,7 @@ impl Deserialize for PollingMessage {
             "prematchOddsUpdated" => PM::PrematchOddsUpdateMessage( json::from_value(result).unwrap() ),
             "prematchMarketsUpdated" => PM::PrematchMarketsUpdateMessage( json::from_value(result).unwrap() ),
             "prematchMatchesUpdated" => PM::PrematchMatchesUpdateMessage( json::from_value(result).unwrap() ),
-            _ => PM::UnsupportedUpdate( UnsupportedUpdate(update_type))
+            _ => PM::UnsupportedUpdateMessage( UnsupportedUpdateMessage(update_type) )
         })
     }
 }
@@ -303,7 +321,17 @@ struct PrematchMatchesUpdateMessage {
 }
 
 #[derive(Deserialize)]
-struct UnsupportedUpdate(String);
+struct UnsupportedUpdateMessage(String);
+
+#[derive(Deserialize)]
+enum Update {
+    OddUpdate(OddUpdate),
+    Market(Market),
+    Event(Event),
+    PrematchOddUpdate(PrematchOddUpdate),
+    PrematchMarketUpdate(PrematchMarketUpdate),
+    PrematchMatchUpdate(PrematchMatchUpdate)
+}
 
 #[derive(Deserialize)]
 struct OddUpdate {
@@ -364,7 +392,7 @@ fn convert_prematch_market_update(update: &PrematchMarketUpdate) -> Market {
     }
 }
 
-fn convert_prematch_match_update(update: PrematchMatchUpdate) -> Event {
+fn convert_prematch_match_update(update: &PrematchMatchUpdate) -> Event {
     let tm = time::at_utc(time::Timespec::new(update.2 as i64, 0));
 
     Event {
@@ -381,11 +409,11 @@ fn convert_prematch_match_update(update: PrematchMatchUpdate) -> Event {
     }
 }
 
-fn convert_event_into_offer(event: &Event) -> Result<Option<Offer>> {
+fn create_offer(event: &Event) -> Result<Option<Offer>> {
     let game = get_game(&event);
     let kind = get_kind(&event);
 
-    if event.IsSuspended
+    if event.IsSuspended || event.IsFinished.unwrap_or(false)
     || !event.IsActive.unwrap_or(true)
     || game.is_none() || kind.is_none() {
         return Ok(None);
@@ -464,6 +492,7 @@ fn get_game(event: &Event) -> Option<Game> {
         "American Football" => Game::AmericanFootball,
         "Bandy" => Game::Bandy,
         "Baseball" => Game::Baseball,
+        "Darts" => Game::Darts,
         "Basketball" => Game::Basketball,
         "Boxing" => Game::Boxing,
         "Chess" => Game::Chess,
@@ -490,152 +519,91 @@ fn get_kind(event: &Event) -> Option<Kind> {
     Some(Kind::Series)
 }
 
-fn apply_updates(state: &mut State, messages: Vec<PollingMessage>) -> Result<()> {
+// XXX(universome)
+// We recieve updates from vitalbet in a very nested format.
+// So we would like to transform them into a normal flat vector.
+fn flatten_updates(messages: Vec<PollingMessage>) -> Vec<Update> {
+    let mut updates = Vec::new();
+
     for msg in messages {
         match msg {
-            PM::OddsUpdateMessage(ref msg) => {
-                for odd_update in msg.A.iter().flat_map(|updates| updates.into_iter()) {
-                    try!(apply_odd_update(state, odd_update));
-                }
-            },
-            PM::PrematchOddsUpdateMessage(ref msg) => {
-                for odd_update in msg.A.iter().flat_map(|updates| updates.iter()) {
-                    try!(apply_odd_update(state, &convert_prematch_odd_update(odd_update),));
-                }
-            },
-            PM::MarketsUpdateMessage(msg) => {
-                for market_update in msg.A.into_iter().flat_map(|updates| updates.into_iter()) {
-                    try!(apply_market_update(state, market_update));
-                }
-            },
-            PM::PrematchMarketsUpdateMessage(msg) => {
-                for market_update in msg.A.into_iter().flat_map(|updates| updates.into_iter()) {
-                    try!(apply_market_update(state, convert_prematch_market_update(&market_update)));
-                }
-            },
-            PM::MatchesUpdateMessage(msg) => {
-                for event_update in msg.A.into_iter().flat_map(|updates| updates.into_iter()) {
-                    try!(apply_event_update(state, event_update));
-                }
-            },
-            PM::PrematchMatchesUpdateMessage(msg) => {
-                for event_update in msg.A.into_iter().flat_map(|updates| updates.into_iter()) {
-                    try!(apply_event_update(state, convert_prematch_match_update(event_update)));
-                }
-            },
+            PM::OddsUpdateMessage(m) =>
+                updates.extend(m.A.into_iter().flat_map(|v| v).map(Update::OddUpdate)),
+            PM::MarketsUpdateMessage(m) =>
+                updates.extend(m.A.into_iter().flat_map(|v| v).map(Update::Market)),
+            PM::MatchesUpdateMessage(m) =>
+                updates.extend(m.A.into_iter().flat_map(|v| v).map(Update::Event)),
+
+            PM::PrematchOddsUpdateMessage(m) =>
+                updates.extend(m.A.into_iter().flat_map(|v| v).map(Update::PrematchOddUpdate)),
+            PM::PrematchMarketsUpdateMessage(m) =>
+                updates.extend(m.A.into_iter().flat_map(|v| v).map(Update::PrematchMarketUpdate)),
+            PM::PrematchMatchesUpdateMessage(m) =>
+                updates.extend(m.A.into_iter().flat_map(|v| v).map(Update::PrematchMatchUpdate)),
+
             _ => {}
         }
     }
 
-    Ok(())
+    updates
 }
 
-fn apply_odd_update(state: &mut State, odd_update: &OddUpdate) -> Result<()> {
-    if !state.odds_to_events_ids.contains_key(&odd_update.ID) {
-        return Ok(());
+fn find_event_for_update<'a>(state: &'a mut State, update: &Update) -> Option<&'a mut Event> {
+    let event_id = match update {
+        &Update::OddUpdate(ref u) => state.odds_to_events.get(&u.ID),
+        &Update::Market(ref u) => state.markets_to_events.get(&u.ID),
+        &Update::Event(ref u) => Some(&u.ID),
+        &Update::PrematchOddUpdate(ref u) => Some(&u.0),
+        &Update::PrematchMarketUpdate(ref u) => state.markets_to_events.get(&u.0),
+        &Update::PrematchMatchUpdate(ref u) => Some(&u.0),
+    };
+
+    match event_id {
+        Some(eid) => state.events.get_mut(&eid),
+        None => None
     }
+}
 
-    let event_id = state.odds_to_events_ids[&odd_update.ID];
-
-    if !state.events.contains_key(&event_id) {
-        return Ok(());
+fn apply_update(event: &mut Event, update: &Update) -> bool {
+    match update {
+        &Update::OddUpdate(ref u) => apply_odd_update(event, u),
+        &Update::Market(ref u) => apply_market_update(event, u),
+        &Update::Event(ref u) => apply_event_update(event, u),
+        &Update::PrematchOddUpdate(ref u) => apply_odd_update(event, &convert_prematch_odd_update(u)),
+        &Update::PrematchMarketUpdate(ref u) => apply_market_update(event, &convert_prematch_market_update(u)),
+        &Update::PrematchMatchUpdate(ref u) => apply_event_update(event, &convert_prematch_match_update(u))
     }
+}
 
-    let event = state.events.get_mut(&event_id).unwrap();
-
-    // Find the odd we want to update and update it.
+fn apply_odd_update(event: &mut Event, odd_update: &OddUpdate) -> bool {
     if let Some(ref mut odds) = event.PreviewOdds {
-        for odd in odds {
-            if odd.ID == odd_update.ID {
-                odd.Value = odd_update.Value;
-                odd.IsSuspended = odd_update.IsSuspended;
-                odd.IsVisible = odd_update.IsVisible;
-            }
-        }
+        if let Some(ref mut odd) = odds.iter_mut().find(|odd| odd.ID == odd_update.ID) {
+            odd.Value = odd_update.Value;
+            odd.IsSuspended = odd_update.IsSuspended;
+            odd.IsVisible = odd_update.IsVisible;
 
-        state.changed_events.insert(event.ID);
+            return true;
+        }
     }
 
-    Ok(())
+    false
 }
 
-fn apply_market_update(state: &mut State, market_update: Market) -> Result<()> {
-    if !state.markets_to_events_ids.contains_key(&market_update.ID) {
-        return Ok(());
-    }
-
-    let event_id = state.markets_to_events_ids[&market_update.ID];
-
-    if !state.events.contains_key(&event_id) {
-        return Ok(());
-    }
-
-    let event = state.events.get_mut(&event_id).unwrap();
-
+fn apply_market_update(event: &mut Event, market_update: &Market) -> bool {
     if let Some(ref mut market) = event.PreviewMarket {
         market.IsSuspended = market_update.IsSuspended;
         market.IsActive = market_update.IsActive;
 
-        state.changed_events.insert(event.ID);
+        return true;
     }
 
-    Ok(())
+    false
 }
 
-fn apply_event_update(state: &mut State, event_update: Event) -> Result<()> {
-    state.changed_events.insert(event_update.ID);
+fn apply_event_update(event: &mut Event, event_update: &Event) -> bool {
+    event.IsSuspended = event_update.IsSuspended;
+    event.IsActive = event_update.IsActive;
+    event.IsFinished = event_update.IsFinished.or(event.IsFinished);
 
-    if state.events.contains_key(&event_update.ID) {
-        let event = state.events.get_mut(&event_update.ID).unwrap();
-
-        event.IsSuspended = event_update.IsSuspended;
-        event.DateOfMatch = event_update.DateOfMatch;
-
-        if let Some(odds) = event_update.PreviewOdds {
-            for odd in &odds {
-                state.odds_to_events_ids.insert(odd.ID, event.ID);
-            }
-
-            event.PreviewOdds = Some(odds);
-        }
-    } else {
-        if let Some(ref market) = event_update.PreviewMarket {
-            state.markets_to_events_ids.insert(market.ID.clone(), event_update.ID.clone());
-        }
-
-        state.events.insert(event_update.ID, event_update);
-    }
-
-    Ok(())
-}
-
-fn provide_offers(state: &mut State, cb: &Fn(Message)) -> Result<()> {
-    let mut upserted = 0;
-    let mut removed = 0;
-
-    for updated_event_id in state.changed_events.drain() {
-        if let Some(offer) = try!(convert_event_into_offer(&state.events[&updated_event_id])) {
-            state.offers.insert(offer.oid as u32, offer.clone());
-
-            cb(Upsert(offer));
-
-            upserted += 1;
-        } else {
-            if let Some(offer) = state.offers.remove(&updated_event_id) {
-                cb(Remove(offer.oid));
-
-                removed += 1;
-            }
-
-            if state.events[&updated_event_id].IsFinished.unwrap_or(false) {
-                trace!("Event is finished: {:?}", state.events[&updated_event_id]);
-
-                state.events.remove(&updated_event_id);
-            }
-        }
-    }
-
-    trace!("Upserted {} offers. Removed {} offers.", upserted, removed);
-
-    Ok(())
+    true
 }
