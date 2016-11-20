@@ -273,13 +273,16 @@ fn place_bets(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
         });
     }
 
-    // Yes, twice.
+    // Yes, twice: `glance + check` and `glance`.
     if !barrier.wait(*CHECK_TIMEOUT) || !barrier.wait(*CHECK_TIMEOUT) {
         warn!("The time is up");
         return;
     }
 
     save_combo(&pairs, &stakes);
+
+    // Feuer Frei!
+    barrier.wait(*CHECK_TIMEOUT);
 }
 
 fn place_bet(bookie: &'static Bookie, offer: Offer, outcome: Outcome, stake: Currency,
@@ -341,6 +344,9 @@ fn place_bet(bookie: &'static Bookie, offer: Offer, outcome: Outcome, stake: Cur
         guard.done = true;
         return;
     }
+
+    // Wait the combo saving.
+    barrier.wait(*CHECK_TIMEOUT);
 
     let oid = offer.oid;
     if !bookie.place_bet(offer, outcome, stake) {
