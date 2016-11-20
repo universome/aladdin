@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use std::result::Result as StdResult;
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use std::sync::Mutex;
 use serde::{Deserialize, Deserializer};
 use serde_json as json;
@@ -123,15 +123,17 @@ impl Gambler for VitalBet {
                         cb(Upsert(offer));
                     }
 
-                    // Saving data into state.
-                    event.PreviewOdds.as_ref().map(|odds| {
+                    // Save data into state.
+                    if let Some(ref odds) = event.PreviewOdds {
                         for odd in odds {
                             state.odds_to_events.insert(odd.ID, event.ID);
                         }
-                    });
-                    event.PreviewMarket.as_ref().map(|market| {
+                    };
+
+                    if let Some(ref market) = event.PreviewMarket {
                         state.markets_to_events.insert(market.ID, event.ID);
-                    });
+                    };
+
                     state.events.insert(event.ID, event);
                 }
             }
@@ -283,7 +285,7 @@ impl Deserialize for PollingMessage {
             "prematchOddsUpdated" => PM::PrematchOddsUpdateMessage( json::from_value(result).unwrap() ),
             "prematchMarketsUpdated" => PM::PrematchMarketsUpdateMessage( json::from_value(result).unwrap() ),
             "prematchMatchesUpdated" => PM::PrematchMatchesUpdateMessage( json::from_value(result).unwrap() ),
-            _ => PM::UnsupportedUpdateMessage( UnsupportedUpdateMessage(update_type))
+            _ => PM::UnsupportedUpdateMessage( UnsupportedUpdateMessage(update_type) )
         })
     }
 }
@@ -575,14 +577,12 @@ fn apply_update(event: &mut Event, update: &Update) -> bool {
 
 fn apply_odd_update(event: &mut Event, odd_update: &OddUpdate) -> bool {
     if let Some(ref mut odds) = event.PreviewOdds {
-        for odd in odds {
-            if odd.ID == odd_update.ID {
-                odd.Value = odd_update.Value;
-                odd.IsSuspended = odd_update.IsSuspended;
-                odd.IsVisible = odd_update.IsVisible;
+        if let Some(ref mut odd) = odds.iter_mut().find(|odd| odd.ID == odd_update.ID) {
+            odd.Value = odd_update.Value;
+            odd.IsSuspended = odd_update.IsSuspended;
+            odd.IsVisible = odd_update.IsVisible;
 
-                return true;
-            }
+            return true;
         }
     }
 
