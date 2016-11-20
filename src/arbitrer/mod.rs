@@ -41,7 +41,10 @@ pub fn run() {
         let incoming_tx = incoming_tx.clone();
         let outgoing_tx = outgoing_tx.clone();
 
-        thread::spawn(move || run_gambler(bookie, incoming_tx, outgoing_tx));
+        thread::Builder::new()
+            .name(bookie.host.clone())
+            .spawn(move || run_gambler(bookie, incoming_tx, outgoing_tx))
+            .unwrap();
     }
 
     process_channels(incoming_rx, outgoing_rx);

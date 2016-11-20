@@ -33,7 +33,10 @@ mod combo;
 fn main() {
     base::logger::init().unwrap();
 
-    thread::spawn(server::run);
+    thread::Builder::new()
+        .name("server".to_owned())
+        .spawn(server::run)
+        .unwrap();
 
     // TODO(loyd): make CLI.
     arbitrer::run();
