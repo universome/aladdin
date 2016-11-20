@@ -74,7 +74,6 @@ fn test_barrier() {
 
     const N: usize = 10;
 
-    let long = Duration::new(42, 0);
     let barrier = Arc::new(Barrier::new(N as u32));
     let (tx, rx) = channel();
 
@@ -82,7 +81,7 @@ fn test_barrier() {
         let barrier = barrier.clone();
         let tx = tx.clone();
         thread::spawn(move || {
-            barrier.wait(long);
+            barrier.wait();
             tx.send(1).unwrap();
         });
     }
@@ -92,7 +91,7 @@ fn test_barrier() {
         _ => false,
     });
 
-    barrier.wait(long);
+    barrier.wait();
     let sum = 1 + rx.into_iter().take(N-1).sum::<usize>();
 
     assert_eq!(sum, N);
@@ -115,7 +114,7 @@ fn test_barrier_timeout() {
             let start = Instant::now();
             let timeout = Duration::new(0, i as u32 * 1000000);
 
-            let is_ok = barrier.wait(timeout);
+            let is_ok = barrier.wait_timeout(timeout);
 
             assert!(!is_ok);
             assert!(start.elapsed() >= timeout);
