@@ -328,6 +328,7 @@ fn get_game(event: &Event) -> Option<Game> {
         "Basketball" => Game::Basketball,
         "Baseball" => Game::Baseball,
         "Boxing" => Game::Boxing,
+        "Chess" => Game::Chess,
         "Mixed Martial Arts" => Game::MartialArts,
         "Tennis 3 set." | "Tennis 5-set." => Game::Tennis,
         "Soccer" => Game::Football,

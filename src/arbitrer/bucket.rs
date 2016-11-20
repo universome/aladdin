@@ -26,19 +26,9 @@ impl Bucket {
         let index = market.iter().position(|stored| stored.0 == marked.0);
 
         if let Some(index) = index {
-            if marked.1.outcomes.len() != market[index].1.outcomes.len() {
-                error!("{} by {} is NOT updated: incorrect dimension", marked.1, marked.0.host);
-                return;
-            }
-
             debug!("{} by {} is updated", marked.1, marked.0.host);
             market[index] = marked;
         } else {
-            if marked.1.outcomes.len() != market[0].1.outcomes.len() {
-                error!("{} by {} is NOT added: incorrect dimension", marked.1, marked.0.host);
-                return;
-            }
-
             debug!("{} by {} is added", marked.1, marked.0.host);
             market.push(marked);
         }

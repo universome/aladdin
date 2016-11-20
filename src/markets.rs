@@ -104,6 +104,10 @@ impl PartialEq for Offer {
             return false;
         }
 
+        if self.outcomes.len() != other.outcomes.len() {
+            return false;
+        }
+
         if round_date(self.date) != round_date(other.date) {
             return false;
         }
@@ -130,6 +134,7 @@ impl Hash for Offer {
         round_date(self.date).hash(state);
         self.game.hash(state);
         self.kind.hash(state);
+        self.outcomes.len().hash(state);
     }
 }
 

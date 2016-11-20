@@ -41,7 +41,10 @@ pub fn run() {
         let incoming_tx = incoming_tx.clone();
         let outgoing_tx = outgoing_tx.clone();
 
-        thread::spawn(move || run_gambler(bookie, incoming_tx, outgoing_tx));
+        thread::Builder::new()
+            .name(bookie.host.clone())
+            .spawn(move || run_gambler(bookie, incoming_tx, outgoing_tx))
+            .unwrap();
     }
 
     process_channels(incoming_rx, outgoing_rx);
@@ -273,13 +276,16 @@ fn place_bets(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
         });
     }
 
-    // Yes, twice.
-    if !barrier.wait(*CHECK_TIMEOUT) || !barrier.wait(*CHECK_TIMEOUT) {
+    // Yes, twice: `glance + check` and `glance`.
+    if !barrier.wait_timeout(*CHECK_TIMEOUT) || !barrier.wait_timeout(*CHECK_TIMEOUT) {
         warn!("The time is up");
         return;
     }
 
     save_combo(&pairs, &stakes);
+
+    // Feuer Frei!
+    barrier.wait();
 }
 
 fn place_bet(bookie: &'static Bookie, offer: Offer, outcome: Outcome, stake: Currency,
@@ -325,7 +331,7 @@ fn place_bet(bookie: &'static Bookie, offer: Offer, outcome: Outcome, stake: Cur
     }
 
     // Either the time is up or some thread fails.
-    if !barrier.wait(*CHECK_TIMEOUT) {
+    if !barrier.wait_timeout(*CHECK_TIMEOUT) {
         guard.done = true;
         return;
     }
@@ -337,10 +343,13 @@ fn place_bet(bookie: &'static Bookie, offer: Offer, outcome: Outcome, stake: Cur
     }
 
     // Some thread fails.
-    if !barrier.wait(*CHECK_TIMEOUT) {
+    if !barrier.wait_timeout(*CHECK_TIMEOUT) {
         guard.done = true;
         return;
     }
+
+    // Wait the combo saving.
+    barrier.wait();
 
     let oid = offer.oid;
     if !bookie.place_bet(offer, outcome, stake) {
