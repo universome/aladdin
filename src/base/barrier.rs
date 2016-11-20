@@ -24,7 +24,24 @@ impl Barrier {
         }
     }
 
-    pub fn wait(&self, timeout: Duration) -> bool {
+    pub fn wait(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.count += 1;
+
+        let generation = state.generation;
+
+        if state.count < self.n {
+            while generation == state.generation && state.count < self.n {
+                state = self.cvar.wait(state).unwrap();
+            }
+        } else {
+            state.count = 0;
+            state.generation += 1;
+            self.cvar.notify_all();
+        }
+    }
+
+    pub fn wait_timeout(&self, timeout: Duration) -> bool {
         let mut state = self.state.lock().unwrap();
         state.count += 1;
 
