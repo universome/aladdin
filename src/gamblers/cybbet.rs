@@ -187,7 +187,7 @@ impl Gambler for CybBet {
 
     fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
         let response = try!(self.try_place_bet("/games/checkbet", &offer, &outcome, stake));
-        Ok(response.contains("warning\":\"\""))
+        Ok(response == r#"{"errorExpress":[],"errorSingle":[],"warning":""}"#)
     }
 }
 
