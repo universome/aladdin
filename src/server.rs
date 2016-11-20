@@ -157,7 +157,7 @@ fn render_combos(b: &mut String, combos: &[Combo]) {
         writeln!(b, "|`[{date}]`|{game} {kind}|`{start_date}`|`{start_time}`|{sum}|",
                  date = format_date(combo.date, "%d/%m %R"),
                  game = combo.game,
-                 kind = combo.kind,
+                 kind = ""/*combo.kind*/,    // TODO(loyd): enable after nested.
                  start_date = format_date(approx_expiry, "%d/%m"),
                  start_time = format_date(approx_expiry, "%R"),
                  sum = combo.bets.iter().fold(Currency(0), |sum, bet| sum + bet.stake));
@@ -193,8 +193,9 @@ fn render_bucket(b: &mut String, bucket: &Bucket) {
         vec.push(event);
     }
 
-    for ((game, kind), mut bucket) in groups {
-        writeln!(b, "## {:?} [{:?}]", game, kind);
+    for ((game, _kind), mut bucket) in groups {
+        //writeln!(b, "## {:?} [{:?}]", game, kind);  // TODO(loyd): enable after nested.
+        writeln!(b, "## {:?}", game);
 
         bucket.sort_by_key(|event| event[0].1.date);
 
