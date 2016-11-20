@@ -155,9 +155,9 @@ impl Gambler for VitalBet {
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
         let state = &*try!(self.state.lock());
-        let event = state.events.get(&(offer.oid as u32)).unwrap();
+        let event = &state.events[&(offer.oid as u32)];
         let outcome_id = event.PreviewOdds.as_ref().unwrap().iter()
-            .find(|o| o.Title == outcome.0)
+            .find(|o| o.Title == outcome.0 || (outcome.0 == DRAW && o.Title == "Draw"))
             .unwrap().ID;
 
         let request_data = PlaceBetRequest {
