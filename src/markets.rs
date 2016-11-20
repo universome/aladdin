@@ -68,6 +68,7 @@ pub enum Game {
     BicycleRacing,
     Poker,
     Golf,
+    Curling,
     Netball,
     MartialArts,
     Cricket,

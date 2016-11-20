@@ -473,6 +473,7 @@ fn get_game(event: &Event) -> Option<Game> {
     event.keywords.iter().find(|kw| kw.typeCname == "sport").and_then(|sport| {
         Some(match sport.cname.as_str() {
             "basketball" => Game::Basketball,
+            "curling" => Game::Curling,
             "darts" => Game::Darts,
             "soccer" => Game::Football,
             "ice-hockey" => Game::IceHockey,

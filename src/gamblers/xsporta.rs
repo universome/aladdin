@@ -13,7 +13,7 @@ use gamblers::Message::*;
 use markets::{OID, Offer, Outcome, DRAW, Game, Kind};
 
 static SPORTS_IDS: &[u32] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 21, 22,
-                              23, 24, 26, 27, 28, 30, 31, 32, 36, 38, 40, 41, 49, 56, 66, 67, 80];
+                              23, 24, 26, 27, 28, 30, 31, 32, 36, 38, 40, 41, 46, 49, 56, 66, 67, 80];
 
 pub struct XBet {
     session: Session
@@ -266,6 +266,7 @@ fn game_from_info(info: &Info) -> Option<Game> {
         "Boxing" => Game::Boxing,
         "Chess" => Game::Chess,
         "Cricket" => Game::Cricket,
+        "Curling" => Game::Curling,
         "Darts" => Game::Darts,
         "Field Hockey" => Game::FieldHockey,
         "Floorball" => Game::Floorball,
