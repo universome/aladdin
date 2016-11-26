@@ -26,6 +26,7 @@ pub enum Game {
     CounterStrike,
     CrossFire,
     Dota2,
+    GearsOfWar,
     Halo,
     Hearthstone,
     HeroesOfTheStorm,
