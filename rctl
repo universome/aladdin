@@ -48,6 +48,6 @@ case "$1" in
     fetch-log) scp $USER@$HOST:$DIR/$LOG_FILE . ;;
 
     *)
-        echo "Usage: "$1" {deploy|log|status|start|stop|restart}"
+        echo "Usage: "$1" {deploy|log|status|start|stop|restart|fetch-log}"
         exit 1
 esac
