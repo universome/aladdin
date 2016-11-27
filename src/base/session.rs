@@ -1,8 +1,7 @@
 #![allow(dead_code)]
 
-use std::io::Read;
-use std::io::ErrorKind::{WouldBlock, TimedOut, ConnectionAborted};
-use std::time::{Duration};
+use std::io::{Read, ErrorKind};
+use std::time::Duration;
 use time;
 use std::sync::Mutex;
 use url::form_urlencoded::Serializer as UrlSerializer;
@@ -20,7 +19,7 @@ use base::error::{Result, Error};
 
 header! { (XRequestedWith, "X-Requested-With") => [String] }
 
-const MAX_RETRIES: u32 = 2;
+const MAX_ATTEMPTS: u32 = 3;
 const READ_TIMEOUT: u64 = 20;   // We should set large timeout due to the long-polling.
 const WRITE_TIMEOUT: u64 = 5;
 
@@ -168,13 +167,16 @@ impl<'a> RequestBuilder<'a> {
     }
 
     fn send<R: Receivable, S: Sendable>(&self, body: Option<S>) -> Result<R> {
-        let mut retries = MAX_RETRIES;
+        let mut attempts = MAX_ATTEMPTS;
+
         let body = match body {
             Some(body) => Some(try!(body.to_string())),
             None => None
         };
 
         loop {
+            attempts -= 1;
+
             let result = match self.timeouts {
                 Some(timeouts) => {
                     let mut client = Client::new();
@@ -190,18 +192,26 @@ impl<'a> RequestBuilder<'a> {
             // Check the timeout.
             if let Err(HyperError::Io(ref io)) = result {
                 let need_retry = match io.kind() {
-                    WouldBlock | TimedOut | ConnectionAborted => true,
+                    ErrorKind::WouldBlock | ErrorKind::TimedOut => true,
+                    ErrorKind::ConnectionAborted => true,
+                    ErrorKind::ConnectionRefused => true,
+                    ErrorKind::ConnectionReset => true,
+                    ErrorKind::Other if io.raw_os_error().map_or(false, |c| c == 101) => true,
                     _ => false
                 };
 
-                if need_retry && retries > 0 {
-                    warn!("Retrying {} due to {}...", self.url, io);
-                    retries -= 1;
+                if need_retry && attempts > 0 {
+                    warn!("Retrying {} due to error {}...", self.url, io);
                     continue;
                 }
             }
 
             let response = try!(result);
+
+            if attempts > 0 && response.status.is_server_error() {
+                warn!("Retrying {} due to {}...", self.url, response.status);
+                continue;
+            }
 
             // TODO(universome): actually we need to follow redirects when possible.
             // now it's almost always should be error, but cybbet relies on 302.
