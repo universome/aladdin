@@ -74,6 +74,32 @@ impl VitalBet {
 
         Ok(events)
     }
+
+    fn try_place_bet(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<PlaceBetResponse> {
+        let state = &*try!(self.state.lock());
+        let event = &state.events[&(offer.oid as u32)];
+        let outcome_id = event.PreviewOdds.as_ref().unwrap().iter()
+            .find(|o| o.Title == outcome.0 || (outcome.0 == DRAW && o.Title == "Draw"))
+            .unwrap().ID;
+
+        let request_data = PlaceBetRequest {
+            AcceptBetterOdds: true,
+            Selections: vec![
+                Bet {
+                    Items: vec![
+                        BetOutcome {
+                            ID: outcome_id,
+                            IsBanker: false
+                        }
+                    ],
+                    Stake: stake.into(),
+                    Return: (stake * outcome.1).into()
+                }
+            ]
+        };
+
+        self.session.request("/api/betslip/place").post(request_data)
+    }
 }
 
 impl Gambler for VitalBet {
@@ -155,31 +181,28 @@ impl Gambler for VitalBet {
         }
     }
 
-    fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
-        let state = &*try!(self.state.lock());
-        let event = &state.events[&(offer.oid as u32)];
-        let outcome_id = event.PreviewOdds.as_ref().unwrap().iter()
-            .find(|o| o.Title == outcome.0 || (outcome.0 == DRAW && o.Title == "Draw"))
-            .unwrap().ID;
+    fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
+        let response = try!(self.try_place_bet(offer, outcome, Currency(1)));
 
-        let request_data = PlaceBetRequest {
-            AcceptBetterOdds: true,
-            Selections: vec![
-                Bet {
-                    Items: vec![
-                        BetOutcome {
-                            ID: outcome_id,
-                            IsBanker: false
-                        }
-                    ],
-                    Stake: stake.into(),
-                    Return: (stake * outcome.1).into()
+        match response.ErrorMessage {
+            Some(m) => {
+                if m.contains("Minimum allowed stake") {
+                    let min_stake = try!(m.as_str()
+                        .trim_left_matches("Bet not accepted. Reason: Minimum allowed stake is '$")
+                        .trim_right_matches("'")
+                        .parse::<f64>());
+
+                    Ok(stake >= Currency::from(min_stake))
+                } else {
+                    Ok(false)
                 }
-            ]
-        };
+            },
+            None => Ok(true)
+        }
+    }
 
-        let request = self.session.request("/api/betslip/place");
-        let response: PlaceBetResponse = try!(request.post(request_data));
+    fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
+        let response = try!(self.try_place_bet(&offer, &outcome, stake));
 
         match response.ErrorMessage {
             Some(m) => Err(Error::from(m)),
