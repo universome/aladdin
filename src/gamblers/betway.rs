@@ -472,6 +472,7 @@ fn convert_market_to_offer(market: &Market, event: &Event) -> Option<Offer> {
 fn get_game(event: &Event) -> Option<Game> {
     event.keywords.iter().find(|kw| kw.typeCname == "sport").and_then(|sport| {
         Some(match sport.cname.as_str() {
+            "badminton" => Game::Badminton,
             "basketball" => Game::Basketball,
             "curling" => Game::Curling,
             "darts" => Game::Darts,

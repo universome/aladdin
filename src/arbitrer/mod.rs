@@ -1,7 +1,9 @@
 use std::thread;
+use std::iter;
 use std::cmp::Ordering;
 use std::sync::mpsc::{self, Sender, Receiver};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
+use std::collections::HashSet;
 use time;
 
 use constants::{CHECK_TIMEOUT, BASE_STAKE, MAX_STAKE, MIN_PROFIT, MAX_PROFIT};
@@ -20,6 +22,11 @@ use self::opportunity::{Strategy, MarkedOutcome};
 #[derive(Clone)]
 pub struct MarkedOffer(pub &'static Bookie, pub Offer);
 
+enum Action {
+    Upsert(MarkedOffer),
+    Remove(MarkedOffer)
+}
+
 mod bookie;
 mod bucket;
 mod opportunity;
@@ -34,30 +41,25 @@ pub fn acquire_bucket() -> RwLockReadGuard<'static, Bucket> {
 }
 
 pub fn run() {
-    let (incoming_tx, incoming_rx) = mpsc::channel();
-    let (outgoing_tx, outgoing_rx) = mpsc::channel();
+    let (tx, rx) = mpsc::channel();
 
     for bookie in BOOKIES.iter() {
-        let incoming_tx = incoming_tx.clone();
-        let outgoing_tx = outgoing_tx.clone();
+        let tx = tx.clone();
 
         thread::Builder::new()
             .name(bookie.host.clone())
-            .spawn(move || run_gambler(bookie, incoming_tx, outgoing_tx))
+            .spawn(move || run_gambler(bookie, tx))
             .unwrap();
     }
 
-    process_channels(incoming_rx, outgoing_rx);
+    process_channel(rx);
 }
 
 fn init_bookies() -> Vec<Bookie> {
     BOOKIES_AUTH.iter().map(|info| Bookie::new(info.0, info.1, info.2)).collect()
 }
 
-fn run_gambler(bookie: &'static Bookie,
-               incoming: Sender<MarkedOffer>,
-               outgoing: Sender<MarkedOffer>)
-{
+fn run_gambler(bookie: &'static Bookie, chan: Sender<Action>) {
     struct Guard(&'static Bookie);
 
     impl Drop for Guard {
@@ -69,10 +71,13 @@ fn run_gambler(bookie: &'static Bookie,
     loop {
         let _guard = Guard(bookie);
 
-        bookie.watch(&|offer, update| {
+        bookie.watch(&|offer, upsert| {
             let marked = MarkedOffer(bookie, offer);
-            let chan = if update { &incoming } else { &outgoing };
-            chan.send(marked).unwrap();
+
+            chan.send(match upsert {
+                true => Action::Upsert(marked),
+                false => Action::Remove(marked)
+            }).unwrap();
         });
     }
 }
@@ -88,20 +93,44 @@ fn degradation(bookie: &'static Bookie) {
     }
 }
 
-fn process_channels(incoming: Receiver<MarkedOffer>, outgoing: Receiver<MarkedOffer>) {
+fn process_channel(chan: Receiver<Action>) {
+    // TODO(loyd): the average number of elements in the set indicates the system load.
+    let mut updated = HashSet::new();
+    let mut excess = None;
+
     loop {
-        let marked = incoming.recv().unwrap();
-        let key = marked.1.clone();
+        let action = excess.take().unwrap_or_else(|| chan.recv().unwrap());
+        let iter = iter::once(action).chain(chan.try_iter());
+
         let mut bucket = BUCKET.write().unwrap();
 
-        bucket.update_offer(marked);
-
-        while let Ok(marked) = outgoing.try_recv() {
-            bucket.remove_offer(&marked);
+        // Drain the action channel.
+        for action in iter {
+            match action {
+                Action::Upsert(marked) => {
+                    updated.insert(marked.1.clone());
+                    bucket.update_offer(marked);
+                },
+                Action::Remove(marked) => bucket.remove_offer(&marked)
+            }
         }
 
-        if let Some(market) = bucket.get_market(&key) {
-            realize_market(market);
+        // Drain the updated markets while the channel is empty.
+        while !updated.is_empty() {
+            excess = chan.try_recv().ok();
+
+            if excess.is_some() {
+                break;
+            }
+
+            // Take one of the updated markets and check it.
+            if let Some(key) = updated.iter().next().cloned() {
+                updated.remove(&key);
+
+                if let Some(market) = bucket.get_market(&key) {
+                    realize_market(market);
+                }
+            }
         }
     }
 }

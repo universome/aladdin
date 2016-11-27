@@ -121,8 +121,8 @@ fn render_bookies(b: &mut String, bookies: &[Bookie]) {
     write!(b, "
 # Bookies
 
-| Host | Balance | Stage |
-| ---- | -------:|:-----:|
+| Host | Balance | Stage | Offers |
+| ---- | -------:|:-----:| ------:|
     ");
 
     for bookie in bookies {
@@ -133,14 +133,17 @@ fn render_bookies(b: &mut String, bookies: &[Bookie]) {
             BookieStage::Aborted => "✗".into(),
             BookieStage::Sleeping(wakeup) => {
                 let now = time::get_time().sec as u32;
-                format_date(wakeup - now, "`%R`")
+                let delay = (wakeup - now) / 60;
+
+                format!("{:02}:{:02}", delay / 60, delay % 60)
             }
         };
 
-        writeln!(b, "|{host}|{balance}|{stage}|",
+        writeln!(b, "|{host}|{balance}|{stage}|{offers}|",
                  host = bookie.host,
                  balance = bookie.balance(),
-                 stage = stage);
+                 stage = stage,
+                 offers = bookie.offer_count());
     }
 }
 

@@ -114,6 +114,10 @@ impl Bookie {
         self.delay.store(delay as usize, Relaxed);
     }
 
+    pub fn offer_count(&self) -> usize {
+        self.offers.lock().unwrap().len()
+    }
+
     pub fn hold_stake(&self, stake: Currency) {
         debug_assert_eq!(self.stage(), Running);
         self.balance.fetch_sub(stake.0 as isize, Relaxed);
