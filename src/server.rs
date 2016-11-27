@@ -121,8 +121,8 @@ fn render_bookies(b: &mut String, bookies: &[Bookie]) {
     write!(b, "
 # Bookies
 
-| Host | Balance | Stage |
-| ---- | -------:|:-----:|
+| Host | Balance | Stage | Offers |
+| ---- | -------:|:-----:| ------:|
     ");
 
     for bookie in bookies {
@@ -139,10 +139,11 @@ fn render_bookies(b: &mut String, bookies: &[Bookie]) {
             }
         };
 
-        writeln!(b, "|{host}|{balance}|{stage}|",
+        writeln!(b, "|{host}|{balance}|{stage}|{offers}|",
                  host = bookie.host,
                  balance = bookie.balance(),
-                 stage = stage);
+                 stage = stage,
+                 offers = bookie.offer_count());
     }
 }
 
