@@ -174,6 +174,8 @@ impl<'a> RequestBuilder<'a> {
             None => None
         };
 
+        let body_ref = body.as_ref().map(|body| body.as_str());
+
         loop {
             attempts -= 1;
 
@@ -184,9 +186,9 @@ impl<'a> RequestBuilder<'a> {
                     client.set_read_timeout(Some(Duration::from_secs(timeouts.0)));
                     client.set_write_timeout(Some(Duration::from_secs(timeouts.1)));
 
-                    self._send(&client, &body)
+                    self._send(&client, body_ref)
                 },
-                None => self._send(&self.session.client, &body)
+                None => self._send(&self.session.client, body_ref)
             };
 
             // Check the timeout.
@@ -231,11 +233,11 @@ impl<'a> RequestBuilder<'a> {
         }
     }
 
-    fn _send(&self, client: &Client, body: &Option<String>) -> HyperResult<Response> {
+    fn _send(&self, client: &Client, body: Option<&str>) -> HyperResult<Response> {
         trace!("{} {}", if body.is_none() { "GET" } else { "POST" }, self.url);
 
-        let builder = match *body {
-            Some(ref body) => client.post(&self.url).body(body.as_str()),
+        let builder = match body {
+            Some(body) => client.post(&self.url).body(body),
             None => client.get(&self.url)
         };
 
