@@ -529,7 +529,7 @@ fn get_game(event: &Event) -> Option<Game> {
             },
             "winter-sports" => match event.keywords.iter().find(|kw| kw.typeCname == "country") {
                 Some(country) => match country.cname.as_str() {
-                    "biathlon-men" | "biathlon-women" => Game::Hurling,
+                    "biathlon-men" | "biathlon-women" | "biathlon-mixed" => Game::Biathlon,
                     "alpine-men" | "alpine-women" => Game::AlpineSkiing,
                     "ski-jumping" => Game::SkiJumping,
                     "cross-country-men" | "cross-country-women" => return None, // TODO(universome)
