@@ -133,7 +133,9 @@ fn render_bookies(b: &mut String, bookies: &[Bookie]) {
             BookieStage::Aborted => "✗".into(),
             BookieStage::Sleeping(wakeup) => {
                 let now = time::get_time().sec as u32;
-                format_date(wakeup - now, "`%R`")
+                let delay = (wakeup - now) / 60;
+
+                format!("{:02}:{:02}", delay / 60, delay % 60)
             }
         };
 
