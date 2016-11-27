@@ -94,14 +94,17 @@ fn degradation(bookie: &'static Bookie) {
 }
 
 fn process_channel(chan: Receiver<Action>) {
+    // TODO(loyd): the average number of elements in the set indicates the system load.
     let mut updated = HashSet::new();
+    let mut excess = None;
 
     loop {
-        let action = chan.recv().unwrap();
+        let action = excess.take().unwrap_or_else(|| chan.recv().unwrap());
         let iter = iter::once(action).chain(chan.try_iter());
 
         let mut bucket = BUCKET.write().unwrap();
 
+        // Drain the action channel.
         for action in iter {
             match action {
                 Action::Upsert(marked) => {
@@ -112,9 +115,21 @@ fn process_channel(chan: Receiver<Action>) {
             }
         }
 
-        for key in updated.drain() {
-            if let Some(market) = bucket.get_market(&key) {
-                realize_market(market);
+        // Drain the updated markets while the channel is empty.
+        while !updated.is_empty() {
+            excess = chan.try_recv().ok();
+
+            if excess.is_some() {
+                break;
+            }
+
+            // Take one of the updated markets and check it.
+            if let Some(key) = updated.iter().next().cloned() {
+                updated.remove(&key);
+
+                if let Some(market) = bucket.get_market(&key) {
+                    realize_market(market);
+                }
             }
         }
     }
