@@ -477,6 +477,7 @@ fn get_game(event: &Event) -> Option<Game> {
             "Hearthstone" => Game::Hearthstone,
             "SMITE" => Game::Smite,
             "Counter-Strike: Global Offensive" => Game::CounterStrike,
+            "CrossFire" => Game::CrossFire,
             "Dota 2" => Game::Dota2,
             "Gears of War" => Game::GearsOfWar,
             "Starcraft" => Game::StarCraft2,
