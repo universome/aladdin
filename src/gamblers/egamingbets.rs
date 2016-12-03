@@ -25,7 +25,7 @@ pub struct EGB {
 impl EGB {
     pub fn new() -> EGB {
         EGB {
-            session: Session::new("egamingbets.com"),
+            session: Session::new("egb.com"),
             csrf: Mutex::new(String::new()),
             user_time: AtomicUsize::new(0),
             update_time: AtomicUsize::new(0)
