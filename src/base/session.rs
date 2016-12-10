@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::io::{Read, ErrorKind};
+use std::io::Read;
 use std::time::Duration;
 use time;
 use std::sync::Mutex;
@@ -191,18 +191,9 @@ impl<'a> RequestBuilder<'a> {
                 None => self._send(&self.session.client, body_ref)
             };
 
-            // Check the timeout.
+            // Retry if some error occurs.
             if let Err(HyperError::Io(ref io)) = result {
-                let need_retry = match io.kind() {
-                    ErrorKind::WouldBlock | ErrorKind::TimedOut => true,
-                    ErrorKind::ConnectionAborted => true,
-                    ErrorKind::ConnectionRefused => true,
-                    ErrorKind::ConnectionReset => true,
-                    ErrorKind::Other if io.raw_os_error().map_or(false, |c| c == 101) => true,
-                    _ => false
-                };
-
-                if need_retry && attempts > 0 {
+                if attempts > 0 {
                     warn!("Retrying {} due to error {}...", self.url, io);
                     continue;
                 }
