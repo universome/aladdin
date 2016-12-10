@@ -498,6 +498,7 @@ fn get_game(event: &Event) -> Option<Game> {
             "futsal" => Game::Futsal,
             "poker" => Game::Poker,
             "pool" => Game::Pool,
+            "water-polo" => Game::WaterPolo,
             "esports" => match event.keywords.iter().find(|kw| kw.typeCname == "country") {
                 Some(country) => match country.cname.as_str() {
                     "cs-go" => Game::CounterStrike,
