@@ -1,4 +1,5 @@
 #![feature(plugin, custom_derive, static_in_const, specialization, receiver_try_iter)]
+#![feature(conservative_impl_trait)]
 #![plugin(serde_macros)]
 
 #[macro_use]

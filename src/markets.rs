@@ -3,6 +3,8 @@ use std::fmt::{Display, Formatter};
 use std::fmt::Result as FmtResult;
 use time;
 
+use arbitrer::matcher::round_date;
+
 pub type OID = u64;
 
 #[derive(Debug, Clone)]
@@ -150,10 +152,6 @@ pub fn fuzzy_eq(lhs: &str, rhs: &str) -> bool {
     true
 }
 
-fn round_date(ts: u32) -> u32 {
-    (ts + 15 * 60) / (30 * 60) * (30 * 60)
-}
-
 #[test]
 fn test_fuzzy_eq() {
     assert!(fuzzy_eq("rb", "rb"));
@@ -162,20 +160,4 @@ fn test_fuzzy_eq() {
     assert!(fuzzy_eq("r.b", "rb"));
     assert!(fuzzy_eq(" r.b", "rb"));
     assert!(fuzzy_eq(" R.8B ", "rb"));
-}
-
-#[test]
-fn test_round_date() {
-    fn to_unix(time: &str) -> u32 {
-        let date = "2016-08-28 ".to_owned() + time;
-        time::strptime(&date, "%F %H:%M").unwrap().to_timespec().sec as u32
-    }
-
-    assert_eq!(round_date(to_unix("11:30")), to_unix("11:30"));
-    assert_eq!(round_date(to_unix("11:44")), to_unix("11:30"));
-    assert_eq!(round_date(to_unix("11:45")), to_unix("12:00"));
-    assert_eq!(round_date(to_unix("12:00")), to_unix("12:00"));
-    assert_eq!(round_date(to_unix("12:14")), to_unix("12:00"));
-    assert_eq!(round_date(to_unix("12:15")), to_unix("12:30"));
-    assert_eq!(round_date(to_unix("12:30")), to_unix("12:30"));
 }

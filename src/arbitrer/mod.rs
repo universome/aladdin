@@ -27,6 +27,7 @@ enum Action {
     Remove(MarkedOffer)
 }
 
+pub mod matcher;
 mod bookie;
 mod bucket;
 mod opportunity;
