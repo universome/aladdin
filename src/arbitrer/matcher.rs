@@ -27,6 +27,10 @@ impl<'a> Token<'a> {
     fn starts_as(&self, another: Token) -> bool {
         self.into_iter().zip(another.into_iter()).all(|(l, r)| l == r)
     }
+
+    fn is_empty(&self) -> bool {
+        self.into_iter().next().is_some()
+    }
 }
 
 impl<'a> IntoIterator for Token<'a> {
@@ -59,18 +63,25 @@ pub fn compare_offers(left: &Offer, right: &Offer) -> bool {
 
     let mut score = 0.;
     let mut max_score = 0.;
+    let reserved_right_outcomes = &mut [9; 9];
 
     // We receive up to 1.0 points for each title.
-    for left_outcome in &left.outcomes {
+    for (i, left_outcome) in left.outcomes.iter().enumerate() {
         let mut max_sim = 0.;
+        let mut best_right_outcome_index = 0;
 
-        for right_outcome in &right.outcomes {
-            let sim = outcomes_sim(left_outcome, right_outcome);
+        for (k, right_outcome) in right.outcomes.iter().enumerate() {
+            if !reserved_right_outcomes.contains(&k) {
+                let sim = outcomes_sim(left_outcome, right_outcome);
 
-            if sim >= max_sim {
-                max_sim = sim;
+                if sim >= max_sim {
+                    max_sim = sim;
+                    best_right_outcome_index = k;
+                }
             }
         }
+
+        reserved_right_outcomes[i] = best_right_outcome_index;
 
         score += max_sim;
         max_score += 1.;
@@ -114,8 +125,9 @@ fn tokens_sim(left: &str, right: &str) -> f64 {
 fn get_tokens<'a>(title: &'a str) -> impl Iterator<Item = Token<'a>> {
     title
         .split(|c: char| c.is_whitespace() || c == '-' || c == '/')
-        .filter(|token| !token.is_empty() || token != &"FC" || token != &"FK")
-        .map(From::from)
+        .filter(|s| !s.is_empty() || s != &"FC" || s != &"FK" || s != &"City" || s != &"Club")
+        .map(Token::from)
+        .filter(|token| token.is_empty())
 }
 
 fn abbreviation_sim(abbr: Token, title: &str) -> f64 {
@@ -274,6 +286,11 @@ mod tests {
         assert!(!compare_offers(
             &offer!("MVP.GuMiho", 1.95, "Losira", 1.75),
             &offer!("Losira", 1.16, "RYE.Jieshi", 3.9)
+        ));
+
+        assert!(!compare_offers(
+            &offer!("AS Roma", 1.67, DRAW, 4.16, "AC Milan", 5.22),
+            &offer!("Club Leandro N. Alem", 1.65, "Yupanqui", 5.1, DRAW, 3.4)
         ));
     }
 
