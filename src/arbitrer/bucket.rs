@@ -1,10 +1,11 @@
-use std::ops::Deref;
 use std::collections::HashMap;
+use std::mem;
+use std::collections::hash_map::Iter;
 
 use markets::Offer;
-use arbitrer::MarkedOffer;
+use arbitrer::{MarkedOffer, HashableOffer};
 
-pub struct Bucket(HashMap<Offer, Vec<MarkedOffer>>);
+pub struct Bucket(HashMap<HashableOffer, Vec<MarkedOffer>>);
 
 impl Bucket {
     pub fn new() -> Bucket {
@@ -12,17 +13,17 @@ impl Bucket {
     }
 
     pub fn get_market(&self, offer: &Offer) -> Option<&[MarkedOffer]> {
-        self.0.get(offer).map(Vec::as_slice)
+        self.0.get(offer.as_ref()).map(Vec::as_slice)
     }
 
     pub fn update_offer(&mut self, marked: MarkedOffer) {
-        if !self.0.contains_key(&marked.1) {
+        if !self.0.contains_key(marked.1.as_ref()) {
             debug!("Event [{} by {}] is added", marked.1, marked.0.host);
-            self.0.insert(marked.1.clone(), vec![marked]);
+            self.0.insert(HashableOffer(marked.1.clone()), vec![marked]);
             return;
         }
 
-        let market = self.0.get_mut(&marked.1).unwrap();
+        let market = self.0.get_mut(marked.1.as_ref()).unwrap();
         let index = market.iter().position(|stored| stored.0 == marked.0);
 
         if let Some(index) = index {
@@ -36,7 +37,7 @@ impl Bucket {
 
     pub fn remove_offer(&mut self, marked: &MarkedOffer) {
         let remove_market = {
-            let market = match self.0.get_mut(&marked.1) {
+            let market = match self.0.get_mut(marked.1.as_ref()) {
                 Some(market) => market,
                 None => return
             };
@@ -55,15 +56,15 @@ impl Bucket {
 
         if remove_market {
             debug!("Event [{} by {}] is removed", marked.1, marked.0.host);
-            self.0.remove(&marked.1);
+            self.0.remove(marked.1.as_ref());
         }
     }
-}
 
-impl Deref for Bucket {
-    type Target = HashMap<Offer, Vec<MarkedOffer>>;
+    pub fn is_empty(&self) -> bool {
+       self.0.is_empty()
+    }
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    pub fn iter(&self) -> Iter<Offer, Vec<MarkedOffer>> {
+        unsafe { mem::transmute(self.0.iter()) }
     }
 }

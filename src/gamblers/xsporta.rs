@@ -148,8 +148,7 @@ impl Gambler for XBet {
         }
 
         if let Some(recent) = grab_offer(message.Value.unwrap()) {
-            // TODO(loyd): change it after #78.
-            Ok(&recent == offer && recent.outcomes == offer.outcomes)
+            Ok(&recent == offer)
         } else {
             Ok(false)
         }

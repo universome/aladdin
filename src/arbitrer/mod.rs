@@ -1,16 +1,17 @@
 use std::thread;
 use std::iter;
-use std::cmp::Ordering;
 use std::sync::mpsc::{self, Sender, Receiver};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
+use std::mem;
 use time;
 
 use constants::{CHECK_TIMEOUT, BASE_STAKE, MAX_STAKE, MIN_PROFIT, MAX_PROFIT};
 use constants::BOOKIES_AUTH;
 use base::currency::Currency;
 use base::barrier::Barrier;
-use markets::{Offer, Outcome, DRAW, fuzzy_eq};
+use markets::{Offer, Outcome, DRAW};
 use combo::{self, Combo, Bet};
 
 pub use self::bookie::Bookie;
@@ -22,12 +23,38 @@ use self::opportunity::{Strategy, MarkedOutcome};
 #[derive(Clone)]
 pub struct MarkedOffer(pub &'static Bookie, pub Offer);
 
+#[derive(Clone)]
+struct HashableOffer(Offer);
+
+impl Hash for HashableOffer {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        matcher::round_date(self.0.date).hash(state);
+        self.0.game.hash(state);
+        self.0.kind.hash(state);
+        self.0.outcomes.len().hash(state);
+    }
+}
+
+impl Eq for HashableOffer {}
+
+impl PartialEq for HashableOffer {
+    fn eq(&self, other: &HashableOffer) -> bool {
+        matcher::compare_offers(&self.0, &other.0)
+    }
+}
+
+impl AsRef<HashableOffer> for Offer {
+    fn as_ref(&self) -> &HashableOffer {
+        unsafe { mem::transmute(self) }
+    }
+}
+
 enum Action {
     Upsert(MarkedOffer),
     Remove(MarkedOffer)
 }
 
-pub mod matcher;
+mod matcher;
 mod bookie;
 mod bucket;
 mod opportunity;
@@ -109,7 +136,7 @@ fn process_channel(chan: Receiver<Action>) {
         for action in iter {
             match action {
                 Action::Upsert(marked) => {
-                    updated.insert(marked.1.clone());
+                    updated.insert(HashableOffer(marked.1.clone()));
                     bucket.update_offer(marked);
                 },
                 Action::Remove(marked) => bucket.remove_offer(&marked)
@@ -128,7 +155,7 @@ fn process_channel(chan: Receiver<Action>) {
             if let Some(key) = updated.iter().next().cloned() {
                 updated.remove(&key);
 
-                if let Some(market) = bucket.get_market(&key) {
+                if let Some(market) = bucket.get_market(&key.0) {
                     realize_market(market);
                 }
             }
@@ -142,16 +169,12 @@ fn realize_market(market: &[MarkedOffer]) {
     }
 
     let mut table: Vec<Vec<_>> = Vec::with_capacity(market.len());
+    let etalon = &market[0].1.outcomes;
 
-    for (i, marked) in market.into_iter().enumerate() {
-        // We assume that sorting by coefs is reliable way to collate outcomes.
-        let mut marked = sort_outcomes_by_coef(&marked.1.outcomes);
+    table.push(etalon.iter().collect());
 
-        if i > 0 {
-            comparative_permutation(&mut marked, &table[0]);
-        }
-
-        table.push(marked);
+    for marked in market.into_iter().skip(1) {
+        table.push(matcher::collate_outcomes(etalon, &marked.1.outcomes));
     }
 
     debug!("Checking market:");
@@ -203,30 +226,6 @@ fn realize_market(market: &[MarkedOffer]) {
     } else {
         debug!("  Too small profit (min: {:+.1}%, max: {:+.1}%)",
                min_profit * 100., max_profit * 100.);
-    }
-}
-
-fn sort_outcomes_by_coef(outcomes: &[Outcome]) -> Vec<&Outcome> {
-    let mut result = outcomes.iter().collect::<Vec<_>>();
-
-    result.sort_by(|a, b| {
-       if a.0 == DRAW {
-           Ordering::Greater
-       } else if b.0 == DRAW {
-           Ordering::Less
-       } else {
-           a.1.partial_cmp(&b.1).unwrap()
-       }
-    });
-
-    result
-}
-
-fn comparative_permutation(outcomes: &mut [&Outcome], ideal: &[&Outcome]) {
-    for i in 0..ideal.len() - 1 {
-        if fuzzy_eq(&ideal[i].0, &outcomes[i+1].0) || fuzzy_eq(&outcomes[i].0, &ideal[i+1].0) {
-            outcomes.swap(i, i + 1);
-        }
     }
 }
 
