@@ -113,8 +113,10 @@ fn tokens_sim(left: &str, right: &str) -> f64 {
 
     for lhs in get_tokens(left) {
         for rhs in get_tokens(right) {
-            if lhs == rhs || (lhs.len() > 3 && lhs.starts_as(rhs)) {
+            if lhs == rhs {
                 score += 1.;
+            } else if lhs.len() > 3 && lhs.starts_as(rhs) {
+                score += 0.9;
             } else if lhs.is_abbr() {
                 // Penalize for being an abbreviation.
                 score += abbreviation_sim(lhs, right) * 0.7;
