@@ -9,6 +9,7 @@ use time;
 
 use constants::{MIN_RETRY_DELAY, MAX_RETRY_DELAY};
 use base::currency::Currency;
+use arbitrer::matcher;
 use gamblers::{self, BoxedGambler, Message};
 use gamblers::Message::*;
 use markets::{OID, Offer, Outcome};
@@ -157,11 +158,7 @@ impl Bookie {
 
     pub fn glance_offer(&self, offer: &Offer) -> bool {
         let offers = self.offers.lock().unwrap();
-
-        let is_actual = offers.get(&offer.oid).map_or(false, |stored| {
-            // TODO(loyd): change it after #78.
-            stored == offer && stored.outcomes == offer.outcomes
-        });
+        let is_actual = offers.get(&offer.oid).map_or(false, |o| o == offer);
 
         if !is_actual {
             warn!(target: self.module, "Offer {} is suddenly outdated", offer);
@@ -274,12 +271,14 @@ impl Bookie {
 
                 let stored = offers.get_mut(&offer.oid).unwrap();
 
-                // TODO(loyd): change it after #78.
-                if stored != &offer {
+                if !matcher::compare_offers(stored, &offer) {
                     cb(stored.clone(), false);
                     cb(offer.clone(), true);
+
                     return;
-                } else if stored.outcomes != offer.outcomes {
+                }
+
+                if stored != &offer {
                     cb(offer.clone(), true);
                 }
 

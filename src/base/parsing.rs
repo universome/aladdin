@@ -3,6 +3,7 @@ use kuchiki::iter::{Select, Elements, Descendants};
 
 use base::error::{Result, Error};
 
+
 pub trait NodeRefExt {
     fn query(&self, &str) -> Result<NodeDataRef<ElementData>>;
     fn query_all(&self, &str) -> Result<Select<Elements<Descendants>>>;
