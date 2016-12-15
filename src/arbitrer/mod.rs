@@ -173,7 +173,7 @@ fn realize_market(market: &[MarkedOffer]) {
 
     table.push(etalon.iter().collect());
 
-    for marked in market.into_iter().skip(1) {
+    for marked in &market[1..] {
         table.push(matcher::collate_outcomes(etalon, &marked.1.outcomes));
     }
 

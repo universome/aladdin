@@ -55,6 +55,9 @@ impl<'a> PartialEq for Token<'a> {
 }
 
 pub fn compare_offers(left: &Offer, right: &Offer) -> bool {
+    debug_assert!(left.outcomes.len() <= 3);
+    debug_assert!(right.outcomes.len() <= 3);
+
     if left.game != right.game || left.kind != right.kind
     || left.outcomes.len() != right.outcomes.len()
     || round_date(left.date) != round_date(right.date) {
@@ -62,39 +65,40 @@ pub fn compare_offers(left: &Offer, right: &Offer) -> bool {
     }
 
     let mut score = 0.;
-    let mut max_score = 0.;
-    let reserved_right_outcomes = &mut [9; 9];
+    let max_score = left.outcomes.len() as f64;
+    let mut reserved = [3; 3];
 
     // We receive up to 1.0 points for each title.
     for (i, left_outcome) in left.outcomes.iter().enumerate() {
         let mut max_sim = 0.;
-        let mut best_right_outcome_index = 0;
+        let mut best_match = 0;
 
         for (k, right_outcome) in right.outcomes.iter().enumerate() {
-            if !reserved_right_outcomes.contains(&k) {
-                let sim = outcomes_sim(left_outcome, right_outcome);
+            if reserved.contains(&k) {
+                continue;
+            }
 
-                if sim >= max_sim {
-                    max_sim = sim;
-                    best_right_outcome_index = k;
-                }
+            let sim = outcomes_sim(left_outcome, right_outcome);
+
+            if sim >= max_sim {
+                max_sim = sim;
+                best_match = k;
             }
         }
 
-        reserved_right_outcomes[i] = best_right_outcome_index;
+        reserved[i] = best_match;
 
         score += max_sim;
-        max_score += 1.;
     }
 
     (score / max_score) >= THRESHOLD
 }
 
 fn outcomes_sim(lhs: &Outcome, rhs: &Outcome) -> f64 {
-    titles_sim(&lhs.0, &rhs.0) * 0.8 + coefs_sim(&lhs.1, &rhs.1) * 0.2
+    titles_sim(&lhs.0, &rhs.0) * 0.8 + coefs_sim(lhs.1, rhs.1) * 0.2
 }
 
-fn coefs_sim(lhs: &f64, rhs: &f64) -> f64 {
+fn coefs_sim(lhs: f64, rhs: f64) -> f64 {
     1. - (lhs - rhs).abs() / (lhs + rhs) // ultra formula :|
 }
 
@@ -102,7 +106,7 @@ fn titles_sim(left: &str, right: &str) -> f64 {
     tokens_sim(left, right) * 0.5 + tokens_sim(right, left) * 0.5
 }
 
-// Calculates, how much tokens from the left string fits to the right one
+// Calculates how much tokens from the left string fits to the right one
 // TODO(universome): rename it
 fn tokens_sim(left: &str, right: &str) -> f64 {
     let mut score = 0.;
@@ -153,9 +157,7 @@ pub fn collate_outcomes<'a>(etalon: &[Outcome], outcomes: &'a [Outcome]) -> Vec<
     let mut result = outcomes.iter().collect::<Vec<_>>();
 
     for (i, outcome) in etalon.iter().enumerate() {
-        let index = most_similar_outcome(outcome, &result);
-
-        debug_assert!(index >= i);
+        let index = i + most_similar_outcome(outcome, &result[i..]);
 
         result.swap(i, index);
     }
@@ -164,7 +166,7 @@ pub fn collate_outcomes<'a>(etalon: &[Outcome], outcomes: &'a [Outcome]) -> Vec<
 }
 
 // Finds most similar outcome and returns its index in slice
-fn most_similar_outcome(outcome: &Outcome, outcomes: &Vec<&Outcome>) -> usize {
+fn most_similar_outcome(outcome: &Outcome, outcomes: &[&Outcome]) -> usize {
     let mut max_sim = 0.;
     let mut index = 0;
 
