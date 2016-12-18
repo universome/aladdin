@@ -1,5 +1,5 @@
 use std::char;
-use std::iter::Filter;
+use std::iter::FilterMap;
 use std::str::Chars;
 
 use markets::{Offer, Outcome};
@@ -9,15 +9,19 @@ const THRESHOLD: f64 = 0.7;
 #[derive(Debug, Clone, Copy)]
 struct Token<'a>(&'a str);
 
-type TokenImpl<'a> = Filter<Chars<'a>, fn(&char) -> bool>;
+type TokenImpl<'a> = FilterMap<Chars<'a>, fn(char) -> Option<char>>;
 
-fn transform(c: &char) -> bool {
-    c.is_alphabetic()
+fn transform(c: char) -> Option<char> {
+    if c.is_alphabetic() || c.is_digit(10) {
+        c.to_lowercase().next()
+    } else {
+        None
+    }
 }
 
 impl<'a> Token<'a> {
     fn is_abbr(&self) -> bool {
-        self.into_iter().all(|c| c.is_uppercase())
+        self.0.chars().filter(|c| c.is_alphabetic()).all(|c| c.is_uppercase())
     }
 
     fn len(&self) -> usize {
@@ -40,7 +44,7 @@ impl<'a> IntoIterator for Token<'a> {
     type IntoIter = TokenImpl<'a>;
 
     fn into_iter(self) -> TokenImpl<'a> {
-        self.0.chars().filter(transform)
+        self.0.chars().filter_map(transform)
     }
 }
 
@@ -375,6 +379,27 @@ mod tests {
         assert!(compare_offers(
             &offer!("Georgia", 1.51, "Georgia Tech", 2.69),
             &offer!("Georgia Bulldogs", 1.54, "Georgia Tech Yellow Jackets", 2.68)
+        ));
+    }
+
+    #[test]
+    fn compare_offers_with_numeric_teams() {
+        assert!(compare_offers(
+            &offer!("Imperial", 1.12, "8000", 4.25),
+            &offer!("Imperial", 1.13, "8000", 4.22)
+        ));
+    }
+
+    #[test]
+    fn compare_offers_with_lowercase() {
+        assert!(compare_offers(
+            &offer!("Immortals", 1.63, "Mousesports", 2.20),
+            &offer!("Immortals", 1.68, "mousesports", 2.19)
+        ));
+
+        assert!(compare_offers(
+            &offer!("EnvyUs", 1.33, "Tyloo", 3.30),
+            &offer!("Envyus", 1.35, "TyLoo", 2.95)
         ));
     }
 
