@@ -176,6 +176,8 @@ impl Bookie {
             },
             Err(error) => {
                 error!(target: self.module, "While checking offer: {}", error);
+                debug!(target: self.module, "{:?}", error.stack);
+
                 None
             }
         }
@@ -185,12 +187,16 @@ impl Bookie {
         if cfg!(feature = "place-bets") {
             if let Err(error) = self.gambler.place_bet(offer, outcome, stake) {
                 error!(target: self.module, "While placing bet: {}", error);
+                debug!(target: self.module, "{:?}", error.stack);
+
                 return false;
             }
         }
 
         if let Err(error) = self.gambler.check_balance().map(|b| self.set_balance(b)) {
             error!(target: self.module, "While checking balance: {}", error);
+            debug!(target: self.module, "{:?}", error.stack);
+
             return false;
         }
 
@@ -217,6 +223,8 @@ impl Bookie {
 
         if let Err(error) = self.gambler.authorize(&self.username, &self.password) {
             error!(target: self.module, "While authorizating: {}", error);
+            debug!(target: self.module, "{:?}", error.stack);
+
             return;
         }
 
@@ -224,6 +232,8 @@ impl Bookie {
 
         if let Err(error) = self.gambler.check_balance().map(|b| self.set_balance(b)) {
             error!(target: self.module, "While checking balance: {}", error);
+            debug!(target: self.module, "{:?}", error.stack);
+
             return;
         }
 
@@ -242,6 +252,8 @@ impl Bookie {
             self.handle_message(message, &cb);
         }) {
             error!(target: self.module, "While watching: {}", error);
+            debug!(target: self.module, "{:?}", error.stack);
+
             return;
         }
     }

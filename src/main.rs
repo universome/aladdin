@@ -20,6 +20,7 @@ extern crate serde;
 extern crate serde_json;
 extern crate websocket;
 extern crate rusqlite;
+extern crate backtrace;
 
 use std::thread;
 
