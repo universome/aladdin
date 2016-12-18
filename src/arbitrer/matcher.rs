@@ -6,7 +6,7 @@ use markets::{Offer, Outcome};
 
 const THRESHOLD: f64 = 0.7;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct Token<'a>(&'a str);
 
 type TokenImpl<'a> = Filter<Chars<'a>, fn(&char) -> bool>;
@@ -24,8 +24,10 @@ impl<'a> Token<'a> {
         self.into_iter().count()
     }
 
-    fn starts_as(&self, another: Token) -> bool {
-        self.into_iter().zip(another.into_iter()).all(|(l, r)| l == r)
+    fn starts_with(&self, other: Token) -> bool {
+        let mut other_it = other.into_iter();
+
+        self.into_iter().zip(other_it.by_ref()).all(|(l, r)| l == r) && other_it.next().is_none()
     }
 
     fn is_empty(&self) -> bool {
@@ -112,16 +114,23 @@ fn tokens_sim(left: &str, right: &str) -> f64 {
     let mut score = 0.;
 
     for lhs in get_tokens(left) {
+        let mut max_score = 0.0_f64;
+
         for rhs in get_tokens(right) {
-            if lhs == rhs {
-                score += 1.;
-            } else if lhs.len() > 3 && lhs.starts_as(rhs) {
-                score += 0.9;
+            let score = if lhs == rhs {
+                1.
+            } else if lhs.len() > 3 && lhs.starts_with(rhs) {
+                rhs.len() as f64 / lhs.len() as f64
             } else if lhs.is_abbr() {
-                // Penalize for being an abbreviation.
-                score += abbreviation_sim(lhs, right) * 0.7;
-            }
+                abbreviation_sim(lhs, right)
+            } else {
+                0.
+            };
+
+            max_score = max_score.max(score);
         }
+
+        score += max_score;
     }
 
     score / (get_tokens(left).count() as f64)
@@ -137,17 +146,24 @@ fn get_tokens<'a>(title: &'a str) -> impl Iterator<Item = Token<'a>> {
 }
 
 fn abbreviation_sim(abbr: Token, title: &str) -> f64 {
-    let mut score = 0.;
+    let mut abbr_it = abbr.into_iter();
+    let mut letter = abbr_it.next().unwrap();
+    let mut matched = 0usize;
 
     for token in get_tokens(title) {
-        for c in abbr {
-            if token.into_iter().nth(0).unwrap() == c {
-                score += 1.;
-            }
+        let first_char = token.into_iter().next().unwrap();
+
+        if letter == first_char {
+            matched += 1;
+
+            letter = match abbr_it.next() {
+                Some(c) => c,
+                None => break
+            };
         }
     }
 
-    score / (abbr.into_iter().count() as f64)
+    matched as f64 / abbr.len() as f64
 }
 
 pub fn round_date(ts: u32) -> u32 {
@@ -189,7 +205,7 @@ mod tests {
     use time;
 
     use markets::{DRAW, Offer, Outcome, Game, Kind};
-    use super::*;
+    use super::{compare_offers, collate_outcomes, titles_sim, round_date, abbreviation_sim, Token};
 
     macro_rules! offer {
         ( $( $team_name:expr, $coef:expr ),* ) => { Offer {
@@ -266,6 +282,19 @@ mod tests {
     }
 
     #[test]
+    fn compare_offers_with_similar_beginnings() {
+        assert!(!compare_offers(
+            &offer!("Alpla HC Hard", 1.76, "A1 Bregenz HB", 2.6, DRAW, 8.4),
+            &offer!("Alingsaas HK", 1.1, DRAW, 14.75, "Ricoh HK", 9.25)
+        ));
+
+        assert!(!compare_offers(
+            &offer!("Alpla Hard", 1.77, "Bregenz", 2.288, DRAW, 11.),
+            &offer!("Alingsaas HK", 1.1, DRAW, 14.75, "Ricoh HK", 9.25)
+        ));
+    }
+
+    #[test]
     fn compare_very_different_offers() {
         assert!(!compare_offers(
             &offer!("Deportivo Alaves", 2.62, "Espanyol", 3.16, DRAW, 3.18),
@@ -295,6 +324,26 @@ mod tests {
         assert!(!compare_offers(
             &offer!("AS Roma", 1.67, DRAW, 4.16, "AC Milan", 5.22),
             &offer!("Club Leandro N. Alem", 1.65, "Yupanqui", 5.1, DRAW, 3.4)
+        ));
+
+        assert!(!compare_offers(
+            &offer!("Real Betis II", 1.78, "Atletico Espeleno", 4.1, DRAW, 3.4),
+            &offer!("Real Sociedad II", 1.5, DRAW, 4.14, "Mensajero", 7.77)
+        ));
+
+        assert!(!compare_offers(
+            &offer!("Starwings Basket Regio Basel", 5.25, "Benetton Fribourg Olympic", 1.12),
+            &offer!("BBC Monthey", 1.08, "BBC Lausanne", 6.74)
+        ));
+
+        assert!(!compare_offers(
+            &offer!("BBC Monthey", 1.12, "BBC Lausanne", 6.3),
+            &offer!("Starwings Basket Regio Basel", 5.25, "Benetton Fribourg Olympic", 1.12)
+        ));
+
+        assert!(!compare_offers(
+            &offer!("HC La Chaux De Fonds", 1.18, DRAW, 7., "HC Biasca", 8.75),
+            &offer!("SCL Tigers", 2.35, DRAW, 4.1, "Lausanne HC", 2.45)
         ));
     }
 
@@ -408,5 +457,17 @@ mod tests {
                 &Outcome("Mississippi".to_string(), 1.27)
             ]
         );
+    }
+
+    #[test]
+    fn compare_titles() {
+        assert!(titles_sim("HC La Chaux De Fonds", "SCL Tigers") <= 0.3);
+    }
+
+    #[test]
+    fn compare_abbrs() {
+        assert_eq!(abbreviation_sim(Token::from("KL"), "Kek Lol"), 1.);
+        assert_eq!(abbreviation_sim(Token::from("KL"), "Kek Shmek Lol"), 1.);
+        assert_eq!(abbreviation_sim(Token::from("KKL"), "Kek Lol"), 1./3.);
     }
 }
