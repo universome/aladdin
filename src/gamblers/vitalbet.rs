@@ -132,13 +132,16 @@ impl Gambler for VitalBet {
         // First of all, we should get initial page to get session cookie.
         try!(self.session.request("/").get::<String>());
 
-        let mut timer = Periodic::new(3600);
+        let mut full_refresh_timer = Periodic::new(3600);
         let polling_path = try!(self.generate_polling_path());
+
+        let refresh_threshold = 120;
+        let mut refresh_timer = Periodic::new(refresh_threshold / 2);
 
         loop {
             let mut state = try!(self.state.lock());
 
-            if timer.next_if_elapsed() {
+            if full_refresh_timer.next_if_elapsed() {
                 state.odds_to_events = HashMap::new();
                 state.markets_to_events = HashMap::new();
 
@@ -166,6 +169,22 @@ impl Gambler for VitalBet {
 
             let messages = try!(self.session.request(&polling_path).get::<PollingResponse>());
             let updates = flatten_updates(messages.M);
+
+            if refresh_timer.next_if_elapsed() {
+                let now = time::get_time().sec as u32;
+
+                let outdated_events = state.events.iter().filter_map(|(&id, ref event)| {
+                    if parse_date(&event.DateOfMatch).unwrap_or(0) < now + refresh_threshold {
+                        Some(id)
+                    } else {
+                        None
+                    }
+                }).collect::<Vec<_>>();
+
+                for event_id in outdated_events {
+                    state.events.remove(&event_id);
+                }
+            }
 
             for update in updates {
                 if let Some(mut event) = find_event_for_update(&mut state, &update) {
@@ -421,11 +440,11 @@ fn convert_prematch_match_update(update: &PrematchMatchUpdate) -> Event {
     Event {
         ID: update.0,
         IsSuspended: update.1 == 3, // IsSuspended status.
+        IsActive: Some(update.1 == 1 || update.1 == 3),
         DateOfMatch: time::strftime("%Y-%m-%dT%H:%M:%S", &tm).unwrap(),
 
         IsFinished: None,
         PreviewOdds: None,
-        IsActive: None,
         Category: None,
         SportType: None,
         PreviewMarket: None
@@ -477,11 +496,9 @@ fn create_offer(event: &Event) -> Result<Option<Offer>> {
         None => return Ok(None)
     };
 
-    let ts = try!(time::strptime(&event.DateOfMatch, "%Y-%m-%dT%H:%M:%S")).to_timespec();
-
     Ok(Some(Offer {
         oid: event.ID as OID,
-        date: ts.sec as u32,
+        date: try!(parse_date(&event.DateOfMatch)),
         game: game.unwrap(),
         kind: kind.unwrap(),
         outcomes: odds
@@ -543,6 +560,10 @@ fn get_game(event: &Event) -> Option<Game> {
 
 fn get_kind(event: &Event) -> Option<Kind> {
     Some(Kind::Series)
+}
+
+fn parse_date(date: &String) -> Result<u32> {
+    Ok(try!(time::strptime(date, "%Y-%m-%dT%H:%M:%S")).to_timespec().sec as u32)
 }
 
 // XXX(universome)
