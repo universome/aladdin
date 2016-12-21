@@ -120,12 +120,10 @@ impl Bookie {
     }
 
     pub fn hold_stake(&self, stake: Currency) {
-        debug_assert_eq!(self.stage(), Running);
         self.balance.fetch_sub(stake.0 as isize, Relaxed);
     }
 
     pub fn release_stake(&self, stake: Currency) {
-        debug_assert_eq!(self.stage(), Running);
         self.balance.fetch_add(stake.0 as isize, Relaxed);
     }
 
