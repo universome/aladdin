@@ -158,13 +158,7 @@ impl Bookie {
 
     pub fn glance_offer(&self, offer: &Offer) -> bool {
         let offers = self.offers.lock().unwrap();
-        let is_actual = offers.get(&offer.oid).map_or(false, |o| o == offer);
-
-        if !is_actual {
-            warn!(target: self.module, "Offer {} is suddenly outdated", offer);
-        }
-
-        is_actual
+        offers.get(&offer.oid).map_or(false, |o| o == offer)
     }
 
     pub fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Option<bool> {
