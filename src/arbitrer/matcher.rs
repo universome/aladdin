@@ -35,7 +35,7 @@ impl<'a> Token<'a> {
     }
 
     fn is_empty(&self) -> bool {
-        self.into_iter().next().is_some()
+        self.into_iter().next().is_none()
     }
 }
 
@@ -146,7 +146,7 @@ fn get_tokens<'a>(title: &'a str) -> impl Iterator<Item = Token<'a>> {
         .split(|c: char| c.is_whitespace() || c == '-' || c == '/')
         .filter(|s| !s.is_empty() || s != &"FC" || s != &"FK" || s != &"City" || s != &"Club")
         .map(Token::from)
-        .filter(|token| token.is_empty())
+        .filter(|token| !token.is_empty())
 }
 
 fn abbreviation_sim(abbr: Token, title: &str) -> f64 {
