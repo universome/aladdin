@@ -140,7 +140,6 @@ fn tokens_sim(left: &str, right: &str) -> f64 {
     score / (get_tokens(left).count() as f64)
 }
 
-// TODO(universome): We can also split CamelCaseWords.
 fn get_tokens<'a>(title: &'a str) -> impl Iterator<Item = Token<'a>> {
     title
         .split(|c: char| c.is_whitespace() || c == '-' || c == '/')

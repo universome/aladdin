@@ -171,7 +171,6 @@ struct GetGameResponse {
 
 #[derive(Deserialize)]
 struct Info {
-    // TODO(loyd): what is the difference between `ConstId`, `Id` and `MainGameId`?
     Id: u32,
     ChampEng: String,
     SportNameEng: String,

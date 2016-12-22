@@ -180,7 +180,6 @@ impl Gambler for CybBet {
         if response.contains("messageSuccess") {
             Ok(())
         } else {
-            // TODO(loyd): what about doing something more clever?
             Err(Error::from(response))
         }
     }
