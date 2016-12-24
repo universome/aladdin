@@ -23,10 +23,4 @@ pub const PORT: u16 = 3042;
 pub const COMBO_COUNT: u32 = 32;
 
 
-pub const BOOKIES_AUTH: &[(&str, &str, &str)] = &[
-    ("ebettle",      "aladdin",                  "aladdin42"),
-    ("1xsporta",     "shmaladdin.rs@gmail.com",  "aladdin.rs"),
-    ("cybbet",       "aladdin",                  "Shmaladdin42"),
-    ("betway",       "shmaladdin",               "aladdin"),
-    ("betclub",      "shmaladdin.rs@gmail.com",  "aladdin571")
-];
+pub const BOOKIES_AUTH: &[(&str, &str, &str)] = &[include!("../accounts")];
