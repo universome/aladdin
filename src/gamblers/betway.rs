@@ -180,7 +180,7 @@ impl Gambler for BetWay {
                         if let Some(offer) = convert_market_to_offer(&market, &event) {
                             cb(Upsert(offer));
                         } else {
-                            cb(Remove(event.eventId as OID));
+                            cb(Remove(market.marketId as OID));
                         }
                     }
                 }
