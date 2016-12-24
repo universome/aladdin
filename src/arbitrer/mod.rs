@@ -168,6 +168,11 @@ fn realize_market(market: &[MarkedOffer]) {
         return;
     }
 
+    if let Some(marked) = market.iter().find(|m| m.0.stage() != BookieStage::Running) {
+        warn!("Bookie {} isn't running, but the bucket contains offer(s) by it", marked.0.host);
+        return;
+    }
+
     let mut table: Vec<Vec<_>> = Vec::with_capacity(market.len());
     let etalon = &market[0].1.outcomes;
 
