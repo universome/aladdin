@@ -301,7 +301,11 @@ fn place_bets(pairs: &[(&MarkedOffer, &MarkedOutcome)], stakes: &[Currency]) {
         let barrier = barrier.clone();
 
         thread::spawn(move || {
+            let oid = offer.oid;
+            let title = outcome.0.clone();
+
             place_bet(bookie, offer, outcome, stake, &*barrier);
+            combo::mark_as_placed(&bookie.host, oid, &title);
         });
     }
 
@@ -380,12 +384,10 @@ fn place_bet(bookie: &'static Bookie, offer: Offer, outcome: Outcome, stake: Cur
     // Wait the combo saving.
     barrier.wait();
 
-    let oid = offer.oid;
     if !bookie.place_bet(offer, outcome, stake) {
         return;
     }
 
     guard.hold = None;
-    combo::mark_as_placed(&bookie.host, oid);
     guard.done = true;
 }
