@@ -22,7 +22,7 @@ impl Log for Logger {
                 level: record.level(),
                 module: trim_target(record.target()).to_string(),
                 date: time::get_time().sec as u32,
-                data: format!("{}", record.args()),
+                data: truncate(format!("{}", record.args())),
                 count: 1
             });
         }
@@ -60,6 +60,14 @@ fn trim_target(target: &str) -> &str {
     } else {
         target
     }
+}
+
+fn truncate(mut data: String) -> String {
+    if let Some(pos) = data.find('\n') {
+        data.truncate(pos);
+    }
+
+    data
 }
 
 pub struct Message {

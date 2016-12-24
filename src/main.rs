@@ -40,6 +40,5 @@ fn main() {
         .spawn(server::run)
         .unwrap();
 
-    // TODO(loyd): make CLI.
     arbitrer::run();
 }
