@@ -102,12 +102,13 @@ pub fn save(combo: Combo) {
     tx.commit().unwrap();
 }
 
-pub fn mark_as_placed(host: &str, id: u64, title: &str) {
+pub fn mark_as_placed(host: &str, id: u64, title: Option<&str>) {
     let db = DB.lock().unwrap();
-    let mut stmt = db.prepare_cached("UPDATE bet SET placed = 1
-                                      WHERE host = ? AND id = ? AND title = ?").unwrap();
 
-    let updated = stmt.execute(&[&host, &(id as i64), &title]).unwrap();
+    let mut stmt = db.prepare_cached("UPDATE bet SET placed = 1
+                                      WHERE host = ? AND id = ? AND ifnull(title, '') = ?").unwrap();
+
+    let updated = stmt.execute(&[&host, &(id as i64), &title.unwrap_or("")]).unwrap();
 
     debug_assert_eq!(updated, 1);
 }
