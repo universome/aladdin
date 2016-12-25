@@ -137,9 +137,9 @@ impl Gambler for VitalBet {
         let mut refresh_timer = Periodic::new(refresh_threshold / 2);
 
         loop {
-            let mut state = try!(self.state.lock());
-
             if full_refresh_timer.next_if_elapsed() {
+                let mut state = try!(self.state.lock());
+
                 state.odds_to_events = HashMap::new();
                 state.markets_to_events = HashMap::new();
 
@@ -167,6 +167,8 @@ impl Gambler for VitalBet {
 
             let messages = try!(self.session.request(&polling_path).get::<PollingResponse>());
             let updates = flatten_updates(messages.M);
+
+            let mut state = try!(self.state.lock());
 
             if refresh_timer.next_if_elapsed() {
                 let now = time::get_time().sec as u32;
