@@ -75,9 +75,7 @@ impl VitalBet {
         Ok(events)
     }
 
-    fn try_place_bet(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<PlaceBetResponse> {
-        let state = &*try!(self.state.lock());
-        let event = &state.events[&(offer.oid as u32)];
+    fn try_place_bet(&self, event: &Event, outcome: &Outcome, stake: Currency) -> Result<PlaceBetResponse> {
         let outcome_id = event.PreviewOdds.as_ref().unwrap().iter()
             .find(|o| o.Title == outcome.0 || (outcome.0 == DRAW && o.Title == "Draw"))
             .unwrap().ID;
@@ -139,9 +137,9 @@ impl Gambler for VitalBet {
         let mut refresh_timer = Periodic::new(refresh_threshold / 2);
 
         loop {
-            let mut state = try!(self.state.lock());
-
             if full_refresh_timer.next_if_elapsed() {
+                let mut state = try!(self.state.lock());
+
                 state.odds_to_events = HashMap::new();
                 state.markets_to_events = HashMap::new();
 
@@ -169,6 +167,8 @@ impl Gambler for VitalBet {
 
             let messages = try!(self.session.request(&polling_path).get::<PollingResponse>());
             let updates = flatten_updates(messages.M);
+
+            let mut state = try!(self.state.lock());
 
             if refresh_timer.next_if_elapsed() {
                 let now = time::get_time().sec as u32;
@@ -201,7 +201,14 @@ impl Gambler for VitalBet {
     }
 
     fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
-        let response = try!(self.try_place_bet(offer, outcome, Currency(1)));
+        let state = self.state.lock().unwrap();
+
+        let event = match state.events.get(&(offer.oid as u32)) {
+            Some(event) => event,
+            None => return Ok(false)
+        };
+
+        let response = try!(self.try_place_bet(event, outcome, Currency(1)));
 
         match response.ErrorMessage {
             Some(m) => {
@@ -221,7 +228,10 @@ impl Gambler for VitalBet {
     }
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
-        let response = try!(self.try_place_bet(&offer, &outcome, stake));
+        let state = self.state.lock().unwrap();
+
+        let event = try!(state.events.get(&(offer.oid as u32)).ok_or("No such event"));
+        let response = try!(self.try_place_bet(event, &outcome, stake));
 
         match response.ErrorMessage {
             Some(m) => Err(Error::from(m)),
@@ -520,6 +530,7 @@ fn get_game(event: &Event) -> Option<Game> {
             "CrossFire" => Game::CrossFire,
             "Dota 2" => Game::Dota2,
             "Gears of War" => Game::GearsOfWar,
+            "StarCraft BroodWar" => Game::StarCraftBW,
             "Starcraft" => Game::StarCraft2,
             "Overwatch" => Game::Overwatch,
             "Halo" => Game::Halo,

@@ -104,6 +104,7 @@ impl Gambler for XBet {
         let stake: f64 = stake.into();
         let hash = self.session.get_cookie("uhash").unwrap();
         let user_id = self.session.get_cookie("ua").unwrap();
+
         let result = match offer.outcomes.iter().position(|o| o == &outcome).unwrap() {
             0 => 1,
             1 => 3,

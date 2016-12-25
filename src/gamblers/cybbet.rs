@@ -245,6 +245,7 @@ fn extract_offers(html: NodeRef) -> Result<Vec<Offer>> {
             "starcraft2" => Game::StarCraft2,
             "VG" => Game::Vainglory,
             "wot" => Game::WorldOfTanks,
+            "bw" => Game::StarCraftBW,
             "cod" | "warcraft3" | "warcraft" | "wc3" => continue,
             class => {
                 warn!("Unknown game: {}", class);

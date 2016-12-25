@@ -119,7 +119,8 @@ impl Gambler for BetClub {
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
         let events = self.events.lock().unwrap();
-        let event = &events[&offer.oid];
+
+        let event = try!(events.get(&offer.oid).ok_or("No such event"));
         let market = event.get_market().unwrap();
 
         let x2 = if market.Rates.len() > 2 { 2 } else { 1 };
@@ -344,6 +345,7 @@ fn get_game(event: &Event) -> Option<Game> {
 
         "Electronic Sports" => match event.CountryName.as_str() {
             "Dota II" => Game::Dota2,
+            "StarCraft. BW" => Game::StarCraftBW,
             "StarCraft II" => Game::StarCraft2,
             "Counter-Strike" => Game::CounterStrike,
             "Heroes Of The Storm" => Game::HeroesOfTheStorm,
