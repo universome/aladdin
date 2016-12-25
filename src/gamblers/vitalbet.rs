@@ -170,22 +170,6 @@ impl Gambler for VitalBet {
 
             let mut state = try!(self.state.lock());
 
-            if refresh_timer.next_if_elapsed() {
-                let now = time::get_time().sec as u32;
-
-                let outdated_events = state.events.iter().filter_map(|(&id, ref event)| {
-                    if parse_date(&event.DateOfMatch).unwrap_or(0) < now + refresh_threshold {
-                        Some(id)
-                    } else {
-                        None
-                    }
-                }).collect::<Vec<_>>();
-
-                for event_id in outdated_events {
-                    state.events.remove(&event_id);
-                }
-            }
-
             for update in updates {
                 if let Some(mut event) = find_event_for_update(&mut state, &update) {
                     if apply_update(&mut event, &update) {
@@ -195,6 +179,27 @@ impl Gambler for VitalBet {
                             cb(Remove(event.ID as OID));
                         }
                     }
+                }
+            }
+
+            if refresh_timer.next_if_elapsed() {
+                let threshold = time::get_time().sec as u32 + refresh_threshold;
+
+                let outdated = state.events.iter().filter_map(|(&id, ref event)| {
+                    if event_is_live(event) {
+                        return None;
+                    }
+
+                    if parse_date(&event.DateOfMatch).unwrap_or(0) < threshold {
+                        Some(id)
+                    } else {
+                        None
+                    }
+                }).collect::<Vec<_>>();
+
+                for id in outdated {
+                    state.events.remove(&id);
+                    cb(Remove(id as OID));
                 }
             }
         }
@@ -276,6 +281,7 @@ struct Odd {
     ID: u32,
     IsSuspended: bool,
     IsVisible: bool,
+    IsLive: bool,
     Value: f64,
     Title: String,
 }
@@ -390,7 +396,8 @@ struct OddUpdate {
     ID: u32,
     Value: f64,
     IsSuspended: bool,
-    IsVisible: bool
+    IsVisible: bool,
+    IsLive: Option<bool>
 }
 
 #[derive(Deserialize)]
@@ -426,12 +433,17 @@ struct PlaceBetResponse {
     ErrorMessage: Option<String>,
 }
 
+fn event_is_live(event: &Event) -> bool {
+    event.PreviewOdds.as_ref().map_or(false, |odds| odds.iter().all(|o| o.IsLive))
+}
+
 fn convert_prematch_odd_update(update: &PrematchOddUpdate) -> OddUpdate {
     OddUpdate {
         ID: update.0,
         Value: update.1,
         IsSuspended: update.2 == 3, // IsSuspended status.
-        IsVisible: update.2 == 1 || update.2 == 3 // Either active or suspended.
+        IsVisible: update.2 == 1 || update.2 == 3, // Either active or suspended.
+        IsLive: None
     }
 }
 
@@ -639,6 +651,7 @@ fn apply_odd_update(event: &mut Event, odd_update: &OddUpdate) -> bool {
             odd.Value = odd_update.Value;
             odd.IsSuspended = odd_update.IsSuspended;
             odd.IsVisible = odd_update.IsVisible;
+            odd.IsLive = odd_update.IsLive.unwrap_or(odd.IsLive);
 
             return true;
         }
