@@ -345,6 +345,7 @@ fn get_game(event: &Event) -> Option<Game> {
 
         "Electronic Sports" => match event.CountryName.as_str() {
             "Dota II" => Game::Dota2,
+            "StarCraft. BW" => Game::StarCraftBW,
             "StarCraft II" => Game::StarCraft2,
             "Counter-Strike" => Game::CounterStrike,
             "Heroes Of The Storm" => Game::HeroesOfTheStorm,

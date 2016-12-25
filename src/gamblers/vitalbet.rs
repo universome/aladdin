@@ -528,6 +528,7 @@ fn get_game(event: &Event) -> Option<Game> {
             "CrossFire" => Game::CrossFire,
             "Dota 2" => Game::Dota2,
             "Gears of War" => Game::GearsOfWar,
+            "StarCraft BroodWar" => Game::StarCraftBW,
             "Starcraft" => Game::StarCraft2,
             "Overwatch" => Game::Overwatch,
             "Halo" => Game::Halo,

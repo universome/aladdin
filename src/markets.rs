@@ -30,6 +30,7 @@ pub enum Game {
     LeagueOfLegends,
     Overwatch,
     Smite,
+    StarCraftBW,
     StarCraft2,
     Vainglory,
     WorldOfTanks,
