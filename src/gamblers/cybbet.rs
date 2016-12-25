@@ -186,7 +186,13 @@ impl Gambler for CybBet {
 
     fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
         let response = try!(self.try_place_bet("/games/checkbet", &offer, &outcome, stake));
-        Ok(response == r#"{"errorExpress":[],"errorSingle":[],"warning":""}"#)
+        let ok = response == r#"{"errorExpress":[],"errorSingle":[],"warning":""}"#;
+
+        if !ok {
+            warn!("Unexpected response in check_offer: {:?}", response);
+        }
+
+        Ok(ok)
     }
 }
 

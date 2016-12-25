@@ -25,6 +25,36 @@ impl XBet {
             session: Session::new("1xsporta.space")
         }
     }
+
+    fn try_place_bet(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<PlaceBetResponse> {
+        let stake: f64 = stake.into();
+        let hash = self.session.get_cookie("uhash").unwrap();
+        let user_id = self.session.get_cookie("ua").unwrap();
+
+        let result = match offer.outcomes.iter().position(|o| o == outcome).unwrap() {
+            0 => 1,
+            1 => 3,
+            2 => 2,
+            _ => return Err(Error::from("Outcome not found in offer"))
+        };
+
+        let path = "/en/dataLineLive/put_bets_common.php";
+        let request_data = PlaceBetRequest {
+            Events: vec![
+                PlaceBetRequestEvent {
+                    GameId: offer.oid as u32,
+                    Coef: outcome.1,
+                    Kind: 3,
+                    Type: result
+                }
+            ],
+            Summ: stake.to_string(),
+            UserId: user_id,
+            hash: hash
+        };
+
+        self.session.request(&path).post(request_data)
+    }
 }
 
 impl Gambler for XBet {
@@ -101,33 +131,7 @@ impl Gambler for XBet {
     }
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
-        let stake: f64 = stake.into();
-        let hash = self.session.get_cookie("uhash").unwrap();
-        let user_id = self.session.get_cookie("ua").unwrap();
-
-        let result = match offer.outcomes.iter().position(|o| o == &outcome).unwrap() {
-            0 => 1,
-            1 => 3,
-            2 => 2,
-            _ => return Err(Error::from("Outcome not found in offer"))
-        };
-
-        let path = "/en/dataLineLive/put_bets_common.php";
-        let request_data = PlaceBetRequest {
-            Events: vec![
-                PlaceBetRequestEvent {
-                    GameId: offer.oid as u32,
-                    Coef: outcome.1,
-                    Kind: 3,
-                    Type: result
-                }
-            ],
-            Summ: stake.to_string(),
-            UserId: user_id,
-            hash: hash
-        };
-
-        let response: PlaceBetResponse = try!(self.session.request(&path).post(request_data));
+        let response = try!(self.try_place_bet(&offer, &outcome, stake));
 
         if !response.Success {
             return Err(From::from(response.Error));
@@ -136,21 +140,17 @@ impl Gambler for XBet {
         Ok(())
     }
 
-    fn check_offer(&self, offer: &Offer, _: &Outcome, _: Currency) -> Result<bool> {
-        let path = format!("/LineFeed/GetGame?id={}&count=50&cnt=10&lng=en", offer.oid);
-        let message = try!(self.session.request(&path).get::<GetGameResponse>());
+    fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
+        let response = try!(self.try_place_bet(offer, outcome, Currency(1)));
 
-        if !message.Success || message.Value.is_none() {
-            if message.Error.contains("not found") {
-                return Ok(false);
-            } else {
-                return Err(Error::from(message.Error));
-            }
-        }
+        if response.Error.contains("The minimum stake is") {
+            let min_stake = try!(response.Error.as_str()
+                .trim_left_matches("The minimum stake is ")
+                .parse::<f64>());
 
-        if let Some(recent) = grab_offer(message.Value.unwrap()) {
-            Ok(&recent == offer)
+            Ok(stake >= Currency::from(min_stake))
         } else {
+            warn!("Unexpected response in check_offer: {:?}", response);
             Ok(false)
         }
     }
@@ -161,13 +161,6 @@ struct Get1x2Response {
     Error: String,
     Success: bool,
     Value: Vec<Info>
-}
-
-#[derive(Deserialize)]
-struct GetGameResponse {
-    Error: String,
-    Success: bool,
-    Value: Option<Info>
 }
 
 #[derive(Deserialize)]
@@ -204,7 +197,7 @@ struct PlaceBetRequestEvent {
     Type: u32
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct PlaceBetResponse {
     Error: String,
     Success: bool

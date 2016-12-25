@@ -216,7 +216,7 @@ impl Gambler for VitalBet {
         let response = try!(self.try_place_bet(event, outcome, Currency(1)));
 
         match response.ErrorMessage {
-            Some(m) => {
+            Some(ref m) => {
                 if m.contains("Minimum allowed stake") {
                     let min_stake = try!(m.as_str()
                         .trim_left_matches("Bet not accepted. Reason: Minimum allowed stake is '$")
@@ -225,6 +225,7 @@ impl Gambler for VitalBet {
 
                     Ok(stake >= Currency::from(min_stake))
                 } else {
+                    warn!("Unexpected response in check_offer: {:?}", response);
                     Ok(false)
                 }
             },
