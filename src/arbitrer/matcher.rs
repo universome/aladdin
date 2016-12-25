@@ -2,7 +2,7 @@ use std::char;
 use std::iter::FilterMap;
 use std::str::Chars;
 
-use markets::{Offer, Outcome};
+use markets::{Offer, Outcome, DRAW};
 
 const THRESHOLD: f64 = 0.7;
 
@@ -71,15 +71,15 @@ pub fn compare_offers(left: &Offer, right: &Offer) -> bool {
     }
 
     let mut score = 0.;
-    let max_score = left.outcomes.len() as f64;
+    let max_score = left.outcomes.iter().filter(|o| o.0 != DRAW).count() as f64;
     let mut reserved = [3; 3];
 
     // We receive up to 1.0 points for each title.
-    for (i, left_outcome) in left.outcomes.iter().enumerate() {
+    for (i, left_outcome) in left.outcomes.iter().filter(|o| o.0 != DRAW).enumerate() {
         let mut max_sim = 0.;
         let mut best_match = 0;
 
-        for (k, right_outcome) in right.outcomes.iter().enumerate() {
+        for (k, right_outcome) in right.outcomes.iter().filter(|o| o.0 != DRAW).enumerate() {
             if reserved.contains(&k) {
                 continue;
             }
@@ -226,6 +226,11 @@ mod tests {
             &offer!("kek", 1.31, "lol", 1.31),
             &offer!("kek", 1.31, "lol", 1.31)
         ));
+
+        assert!(!compare_offers(
+            &offer!("", 0.0, "", 0.0),
+            &offer!("", 0.0, "", 0.0)
+        ));
     }
 
     #[test]
@@ -361,6 +366,21 @@ mod tests {
             &offer!("Penn State", 1.23, "Michigan State", 4.51),
             &offer!("Ohio State Buckeyes", 1.49, "Michigan Wolverines", 2.845)
         ));
+
+        assert!(!compare_offers(
+            &offer!("Kayserispor U21", 2.45, "Karabukspor U21", 2.34, DRAW, 3.8),
+            &offer!("Galatasaray] [U21", 1.571, DRAW, 4.0, "Alanyaspor] [U21", 4.75)
+        ));
+
+        assert!(!compare_offers(
+            &offer!("Altynordu U21", 1.49, "Umraniyespor U21", 5.6, DRAW, 4.),
+            &offer!("Mersin Idmanyurdu] [U21", 3.25, DRAW, 3.4, "Bandirmaspor] [U21", 2.),
+        ));
+
+        assert!(!compare_offers(
+            &offer!("Dover Athletic", 1.49, DRAW, 4.45, "Machine Sazi Tabriz", 6.09),
+            &offer!("Dover Athletic", 1.53, DRAW, 4.20, "Maidstone United", 5.50)
+        ));
     }
 
     #[test]
@@ -405,7 +425,7 @@ mod tests {
     #[test]
     fn compare_offers_with_high_coefs() {
         assert!(compare_offers(
-            &offer!("Wolfsberger Ac", 18., DRAW, 4.15, "FK Austria Wien", 1.25),
+            &offer!("Wolfsberger Ac", 18.0, DRAW, 4.15, "FK Austria Wien", 1.25),
             &offer!("Wolfsberger AC", 2.61, DRAW, 3.28, "Austria Wien", 2.81)
         ));
     }
