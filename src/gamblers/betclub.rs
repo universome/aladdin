@@ -119,7 +119,8 @@ impl Gambler for BetClub {
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
         let events = self.events.lock().unwrap();
-        let event = &events[&offer.oid];
+
+        let event = try!(events.get(&offer.oid).ok_or("No such event"));
         let market = event.get_market().unwrap();
 
         let x2 = if market.Rates.len() > 2 { 2 } else { 1 };

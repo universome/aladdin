@@ -190,9 +190,11 @@ impl Gambler for BetWay {
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
         let state = self.state.lock().unwrap();
-        let event_id = state.markets_to_events.get(&(offer.oid as u32)).unwrap();
-        let ref event = state.events.get(&event_id).unwrap();
-        let market = event.markets.iter().find(|m| m.marketId == (offer.oid as u32)).unwrap();
+
+        let event_id = try!(state.markets_to_events.get(&(offer.oid as u32)).ok_or("No such market"));
+        let event = try!(state.events.get(&event_id).ok_or("No such event"));
+
+        let market = event.markets.iter().find(|m| m.marketId == offer.oid as u32).unwrap();
         let outcome = market.outcomes.iter().find(|o| o.get_title() == outcome.0).unwrap();
 
         let path = "/betapi/v4/initiateBets";
