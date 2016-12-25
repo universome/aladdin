@@ -4,8 +4,6 @@ use std::str::Chars;
 
 use markets::{Offer, Outcome, DRAW};
 
-const THRESHOLD: f64 = 0.7;
-
 #[derive(Debug, Clone, Copy)]
 struct Token<'a>(&'a str);
 
@@ -97,7 +95,7 @@ pub fn compare_offers(left: &Offer, right: &Offer) -> bool {
         score += max_sim;
     }
 
-    (score / max_score) >= THRESHOLD
+    (score / max_score) >= 0.7
 }
 
 fn outcomes_sim(lhs: &Outcome, rhs: &Outcome) -> f64 {
