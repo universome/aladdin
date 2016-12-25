@@ -15,8 +15,9 @@ pub struct MarkedOutcome<'a> {
 
 pub fn calc_margin(table: &[Vec<&Outcome>]) -> f64 {
     debug_assert!(table.len() > 0);
+    debug_assert!(table[0].len() <= 3);
 
-    let mut line = vec![0.; table[0].len()];
+    let mut line = &mut [0.; 3][..table[0].len()];
 
     for column in table {
         for (best, outcome) in line.iter_mut().zip(column.iter()) {
