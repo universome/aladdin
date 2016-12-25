@@ -150,6 +150,7 @@ impl Gambler for XBet {
 
             Ok(stake >= Currency::from(min_stake))
         } else {
+            warn!("Unexpected response in check_offer: {:?}", response);
             Ok(false)
         }
     }
@@ -196,7 +197,7 @@ struct PlaceBetRequestEvent {
     Type: u32
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct PlaceBetResponse {
     Error: String,
     Success: bool
