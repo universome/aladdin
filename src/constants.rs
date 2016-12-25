@@ -22,5 +22,4 @@ pub const DATABASE: &str = "aladdin.db";
 pub const PORT: u16 = 3042;
 pub const COMBO_COUNT: u32 = 32;
 
-
-pub const BOOKIES_AUTH: &[(&str, &str, &str)] = &[include!("../accounts")];
+pub const ACCOUNTS: &[(&str, &str, &str)] = &include!("../accounts");

@@ -8,7 +8,7 @@ use std::mem;
 use time;
 
 use constants::{CHECK_TIMEOUT, BASE_STAKE, MAX_STAKE, MIN_PROFIT, MAX_PROFIT};
-use constants::BOOKIES_AUTH;
+use constants::ACCOUNTS;
 use base::currency::Currency;
 use base::barrier::Barrier;
 use markets::{Offer, Outcome, DRAW};
@@ -84,7 +84,7 @@ pub fn run() {
 }
 
 fn init_bookies() -> Vec<Bookie> {
-    BOOKIES_AUTH.iter().map(|info| Bookie::new(info.0, info.1, info.2)).collect()
+    ACCOUNTS.iter().map(|info| Bookie::new(info.0, info.1, info.2)).collect()
 }
 
 fn run_gambler(bookie: &'static Bookie, chan: Sender<Action>) {
