@@ -195,7 +195,9 @@ impl Gambler for BetWay {
         let event = try!(state.events.get(&event_id).ok_or("No such event"));
 
         let market = event.markets.iter().find(|m| m.marketId == offer.oid as u32).unwrap();
-        let outcome = market.outcomes.iter().find(|o| o.get_title() == outcome.0).unwrap();
+
+        let pattern = if outcome.0 == DRAW { "Draw" } else { &outcome.0 };
+        let outcome = market.outcomes.iter().find(|o| o.get_title() == pattern).unwrap();
 
         let path = "/betapi/v4/initiateBets";
         let request_data = InitiateBetRequest {
@@ -334,8 +336,9 @@ struct BetwayOutcome {
 }
 
 impl BetwayOutcome {
-    fn get_title(&self) -> String {
-        self.name.trim_left_matches("[").trim_right_matches("]").to_string()
+    // Converting "[NaVi]" into "NaVi".
+    fn get_title(&self) -> &str {
+        self.name.trim_left_matches("[").trim_right_matches("]")
     }
 }
 
@@ -572,11 +575,12 @@ fn get_outcomes(market: &Market) -> Option<Vec<Outcome>> {
     }
 
     Some(market.outcomes.iter().map(|outcome| {
-        // Converting "[NaVi]" into "NaVi".
-        let name = outcome.get_title();
-        let title = if name == "Draw" { DRAW.to_owned() } else { name };
+        let title = match outcome.get_title() {
+            "Draw" => DRAW,
+            title => title
+        };
 
-        Outcome(title, outcome.priceDec.unwrap())
+        Outcome(title.to_owned(), outcome.priceDec.unwrap())
     }).collect())
 }
 
