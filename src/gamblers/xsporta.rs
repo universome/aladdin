@@ -49,6 +49,7 @@ impl XBet {
                 }
             ],
             Summ: stake.to_string(),
+            Lng: "en",
             UserId: user_id,
             hash: hash
         };
@@ -186,6 +187,7 @@ struct PlaceBetRequest {
     Events: Vec<PlaceBetRequestEvent>,
     Summ: String,
     UserId: String,
+    Lng: &'static str,
     hash: String
 }
 
