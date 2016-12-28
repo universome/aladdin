@@ -92,103 +92,8 @@ impl BetWay {
 
         Ok(())
     }
-}
 
-impl Gambler for BetWay {
-    fn authorize(&self, username: &str, password: &str) -> Result<()> {
-        let main_page: String = try!(self.session.request("/").get());
-
-        let server_id = try!(extract_server_id(&main_page).ok_or("Can't extract server_id"));
-        let ip_address = try!(extract_ip_address(&main_page).ok_or("Can't extract ip_address"));
-        let client_type = try!(extract_client_type(&main_page).ok_or("Can't extract client_type"));
-
-        let body = LoginRequestData {
-            password: password,
-            username: username,
-            clientType: client_type,
-            ipAddress: ip_address.as_ref(),
-            serverId: server_id
-        };
-
-        self.session.request("/betapi/v4/login").post::<String, _>(body).map(|_| ())
-    }
-
-    fn check_balance(&self) -> Result<Currency> {
-        let customer_info = try!(self.get_customer_info());
-
-        Ok(Currency(customer_info.sbBalance))
-    }
-
-    fn watch(&self, cb: &Fn(Message)) -> Result<()> {
-        try!(self.set_user_state());
-
-        let mut timer = Periodic::new(3600);
-        let mut connection = try!(Connection::new("sports.betway.com/emoapi/push"));
-        let session = self.session.get_cookie("SESSION").unwrap();
-
-        loop {
-            let mut state = self.state.lock().unwrap();
-
-            if timer.next_if_elapsed() {
-                let events_ids = try!(self.get_events_ids());
-                let current_events = try!(self.get_events(&events_ids));
-                let mut offers_amount = 0;
-
-                // Create offers from events and subscribe for updates.
-                for event in current_events {
-                    if state.events.contains_key(&event.eventId) {
-                        continue;
-                    }
-
-                    let offers = event.markets.iter()
-                        .filter_map(|m| convert_market_to_offer(m, &event))
-                        .collect::<Vec<_>>();
-
-                    for offer in offers {
-                        cb(Upsert(offer));
-                        offers_amount += 1;
-                    }
-
-                    let event_subscription = EventSubscription {
-                        cmd: "eventSub",
-                        session: &session,
-                        eventIds: [event.eventId.clone()]
-                    };
-
-                    try!(connection.send(event_subscription));
-
-                    // Save events and markets for future use.
-                    for market in &event.markets {
-                        state.markets_to_events.insert(market.marketId, event.eventId);
-                    }
-                    state.events.insert(event.eventId, event);
-                }
-
-                trace!("Extracted {} offers", offers_amount);
-            }
-
-            let update = try!(connection.receive::<Update>());
-
-            if let Some(mut event) = match update {
-                Update::EventUpdate(ref u) => state.events.get_mut(&u.eventId),
-                Update::MarketUpdate(ref u) => state.events.get_mut(&u.eventId),
-                Update::OutcomeUpdate(ref u) => state.events.get_mut(&u.eventId),
-                _ => None
-            } {
-                if apply_update(&mut event, &update) {
-                    for market in &event.markets {
-                        if let Some(offer) = convert_market_to_offer(&market, &event) {
-                            cb(Upsert(offer));
-                        } else {
-                            cb(Remove(market.marketId as OID));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
+    fn try_place_bet(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<PlaceBetResponse> {
         let state = self.state.lock().unwrap();
 
         let event_id = try!(state.markets_to_events.get(&(offer.oid as u32)).ok_or("No such market"));
@@ -244,13 +149,131 @@ impl Gambler for BetWay {
             serverId: state.server_id
         };
 
-        let response: PlaceBetResponse = try!(self.session.request(path).post(request_data));
+        self.session.request(path).post(request_data)
+    }
+}
+
+impl Gambler for BetWay {
+    fn authorize(&self, username: &str, password: &str) -> Result<()> {
+        let main_page: String = try!(self.session.request("/").get());
+
+        let server_id = try!(extract_server_id(&main_page).ok_or("Can't extract server_id"));
+        let ip_address = try!(extract_ip_address(&main_page).ok_or("Can't extract ip_address"));
+        let client_type = try!(extract_client_type(&main_page).ok_or("Can't extract client_type"));
+
+        let body = LoginRequestData {
+            password: password,
+            username: username,
+            clientType: client_type,
+            ipAddress: ip_address.as_ref(),
+            serverId: server_id
+        };
+
+        self.session.request("/betapi/v4/login").post::<String, _>(body).map(|_| ())
+    }
+
+    fn check_balance(&self) -> Result<Currency> {
+        let customer_info = try!(self.get_customer_info());
+
+        Ok(Currency(customer_info.sbBalance))
+    }
+
+    fn watch(&self, cb: &Fn(Message)) -> Result<()> {
+        try!(self.set_user_state());
+
+        let mut timer = Periodic::new(3600);
+        let mut connection = try!(Connection::new("sports.betway.com/emoapi/push"));
+        let session = self.session.get_cookie("SESSION").unwrap();
+
+        loop {
+            let mut state = self.state.lock().unwrap();
+
+            if timer.next_if_elapsed() {
+                let events_ids = try!(self.get_events_ids());
+                let current_events = try!(self.get_events(&events_ids));
+
+                // Create offers from events and subscribe for updates.
+                for event in current_events {
+                    if state.events.contains_key(&event.eventId) {
+                        continue;
+                    }
+
+                    let offers = event.markets.iter()
+                        .filter_map(|m| convert_market_to_offer(m, &event))
+                        .collect::<Vec<_>>();
+
+                    for offer in offers {
+                        cb(Upsert(offer));
+                    }
+
+                    let event_subscription = EventSubscription {
+                        cmd: "eventSub",
+                        session: &session,
+                        eventIds: [event.eventId.clone()]
+                    };
+
+                    try!(connection.send(event_subscription));
+
+                    // Save events and markets for future use.
+                    for market in &event.markets {
+                        state.markets_to_events.insert(market.marketId, event.eventId);
+                    }
+                    state.events.insert(event.eventId, event);
+                }
+            }
+
+            let update = try!(connection.receive::<Update>());
+
+            if let Some(mut event) = match update {
+                Update::EventUpdate(ref u) => state.events.get_mut(&u.eventId),
+                Update::MarketUpdate(ref u) => state.events.get_mut(&u.eventId),
+                Update::OutcomeUpdate(ref u) => state.events.get_mut(&u.eventId),
+                _ => None
+            } {
+                if apply_update(&mut event, &update) {
+                    for market in &event.markets {
+                        if let Some(offer) = convert_market_to_offer(&market, &event) {
+                            cb(Upsert(offer));
+                        } else {
+                            cb(Remove(market.marketId as OID));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
+        let response = try!(self.try_place_bet(&offer, &outcome, stake));
 
         if !response.success || response.error.is_some() {
             return Err(Error::from(format!("Placing bet failed: {:?}", response)));
         }
 
         Ok(())
+    }
+
+    fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
+        let response = try!(self.try_place_bet(&offer, &outcome, Currency(1)));
+
+        if response.error.is_none() {
+            warn!("We have placed a bet in check_offer :| — {:?}", response);
+            return Ok(true);
+        }
+
+        let error = response.error.as_ref().unwrap();
+
+        if error.message != "Stake below min bet limit" {
+            warn!("Unexpected error in check_offer: {:?}", response);
+            return Ok(false);
+        }
+
+        if error.details.as_ref().and_then(|details| details.get(0)).is_none() {
+            warn!("Unexpectedly there are no details about error: {:?}", response);
+            return Ok(false);
+        }
+
+        Ok(stake >= Currency(error.details.as_ref().unwrap().get(0).unwrap().min as i64))
     }
 }
 
@@ -704,12 +727,18 @@ struct BetOutcomeSelection {
 #[derive(Deserialize, Debug)]
 struct InitiateBetResponse {
     success: bool,
-    response: Option<InitiateBetResponseData>
+    response: Option<InitiateBetResponseData>,
+    error: Option<InitiateBetError>
 }
 
 #[derive(Deserialize, Debug)]
 struct InitiateBetResponseData {
     betRequestId: Option<String>
+}
+
+#[derive(Deserialize, Debug)]
+struct InitiateBetError {
+    message: String
 }
 
 #[derive(Serialize, Debug)]
