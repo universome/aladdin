@@ -92,6 +92,65 @@ impl BetWay {
 
         Ok(())
     }
+
+    fn try_place_bet(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<PlaceBetResponse> {
+        let state = self.state.lock().unwrap();
+
+        let event_id = try!(state.markets_to_events.get(&(offer.oid as u32)).ok_or("No such market"));
+        let event = try!(state.events.get(&event_id).ok_or("No such event"));
+
+        let market = event.markets.iter().find(|m| m.marketId == offer.oid as u32).unwrap();
+
+        let pattern = if outcome.0 == DRAW { "Draw" } else { &outcome.0 };
+        let outcome = market.outcomes.iter().find(|o| o.get_title() == pattern).unwrap();
+
+        let path = "/betapi/v4/initiateBets";
+        let request_data = InitiateBetRequest {
+            acceptPriceChange: 2,
+            betPlacements: vec![
+                BetPlacement {
+                    numLines: 1,
+                    selections: vec![
+                        Bet {
+                            priceType: 1,
+                            eventId: event.eventId,
+                            handicap: 0,
+                            marketId: market.marketId,
+                            subselections: vec![
+                                BetOutcomeSelection {
+                                    outcomeId: outcome.outcomeId
+                                }
+                            ],
+                            priceNum: outcome.priceNum.unwrap(),
+                            priceDen: outcome.priceDen.unwrap()
+                        }
+                    ],
+                    stakePerLine: stake.0 as u32,
+                    systemCname: "single",
+                    useFreeBet: false,
+                    eachWay: false
+                }
+            ],
+            lang: "en",
+            serverId: state.server_id,
+            userId: state.user_id
+        };
+
+        let response: InitiateBetResponse = try!(self.session.request(path).post(request_data));
+
+        if !response.success || response.response.is_none() {
+            return Err(Error::from(format!("Initiating bet failed: {:?}", response)));
+        }
+
+        let path = "/betapi/v4/lookupBets";
+        let request_data = PlaceBetRequest {
+            betRequestId: response.response.unwrap().betRequestId.unwrap(),
+            userId: state.user_id,
+            serverId: state.server_id
+        };
+
+        self.session.request(path).post(request_data)
+    }
 }
 
 impl Gambler for BetWay {
@@ -189,68 +248,36 @@ impl Gambler for BetWay {
     }
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
-        let state = self.state.lock().unwrap();
-
-        let event_id = try!(state.markets_to_events.get(&(offer.oid as u32)).ok_or("No such market"));
-        let event = try!(state.events.get(&event_id).ok_or("No such event"));
-
-        let market = event.markets.iter().find(|m| m.marketId == offer.oid as u32).unwrap();
-
-        let pattern = if outcome.0 == DRAW { "Draw" } else { &outcome.0 };
-        let outcome = market.outcomes.iter().find(|o| o.get_title() == pattern).unwrap();
-
-        let path = "/betapi/v4/initiateBets";
-        let request_data = InitiateBetRequest {
-            acceptPriceChange: 2,
-            betPlacements: vec![
-                BetPlacement {
-                    numLines: 1,
-                    selections: vec![
-                        Bet {
-                            priceType: 1,
-                            eventId: event.eventId,
-                            handicap: 0,
-                            marketId: market.marketId,
-                            subselections: vec![
-                                BetOutcomeSelection {
-                                    outcomeId: outcome.outcomeId
-                                }
-                            ],
-                            priceNum: outcome.priceNum.unwrap(),
-                            priceDen: outcome.priceDen.unwrap()
-                        }
-                    ],
-                    stakePerLine: stake.0 as u32,
-                    systemCname: "single",
-                    useFreeBet: false,
-                    eachWay: false
-                }
-            ],
-            lang: "en",
-            serverId: state.server_id,
-            userId: state.user_id
-        };
-
-        let response: InitiateBetResponse = try!(self.session.request(path).post(request_data));
-
-        if !response.success || response.response.is_none() {
-            return Err(Error::from(format!("Initiating bet failed: {:?}", response)));
-        }
-
-        let path = "/betapi/v4/lookupBets";
-        let request_data = PlaceBetRequest {
-            betRequestId: response.response.unwrap().betRequestId.unwrap(),
-            userId: state.user_id,
-            serverId: state.server_id
-        };
-
-        let response: PlaceBetResponse = try!(self.session.request(path).post(request_data));
+        let response = try!(self.try_place_bet(&offer, &outcome, stake));
 
         if !response.success || response.error.is_some() {
             return Err(Error::from(format!("Placing bet failed: {:?}", response)));
         }
 
         Ok(())
+    }
+
+    fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
+        let response = try!(self.try_place_bet(&offer, &outcome, Currency(1)));
+
+        if response.error.is_none() {
+            warn!("We have placed a bet in check_offer :| — {:?}", response);
+            return Ok(true);
+        }
+
+        let error = response.error.as_ref().unwrap();
+
+        if error.message != "Stake below min bet limit" {
+            warn!("Unexpected error in check_offer: {:?}", response);
+            return Ok(false);
+        }
+
+        if error.details.as_ref().and_then(|details| details.get(0)).is_none() {
+            warn!("Unexpectedly there are no details about error: {:?}", response);
+            return Ok(false);
+        }
+
+        Ok(stake >= Currency(error.details.as_ref().unwrap().get(0).unwrap().min as i64))
     }
 }
 
