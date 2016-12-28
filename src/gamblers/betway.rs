@@ -727,12 +727,18 @@ struct BetOutcomeSelection {
 #[derive(Deserialize, Debug)]
 struct InitiateBetResponse {
     success: bool,
-    response: Option<InitiateBetResponseData>
+    response: Option<InitiateBetResponseData>,
+    error: Option<InitiateBetError>
 }
 
 #[derive(Deserialize, Debug)]
 struct InitiateBetResponseData {
     betRequestId: Option<String>
+}
+
+#[derive(Deserialize, Debug)]
+struct InitiateBetError {
+    message: String
 }
 
 #[derive(Serialize, Debug)]
