@@ -191,7 +191,6 @@ impl Gambler for BetWay {
             if timer.next_if_elapsed() {
                 let events_ids = try!(self.get_events_ids());
                 let current_events = try!(self.get_events(&events_ids));
-                let mut offers_amount = 0;
 
                 // Create offers from events and subscribe for updates.
                 for event in current_events {
@@ -205,7 +204,6 @@ impl Gambler for BetWay {
 
                     for offer in offers {
                         cb(Upsert(offer));
-                        offers_amount += 1;
                     }
 
                     let event_subscription = EventSubscription {
@@ -222,8 +220,6 @@ impl Gambler for BetWay {
                     }
                     state.events.insert(event.eventId, event);
                 }
-
-                trace!("Extracted {} offers", offers_amount);
             }
 
             let update = try!(connection.receive::<Update>());
