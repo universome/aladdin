@@ -14,7 +14,7 @@ use constants::{PORT, COMBO_COUNT};
 use base::error::Result;
 use base::logger;
 use base::currency::Currency;
-use arbitrer::{self, Bookie, BookieStage, Bucket, MarkedOffer};
+use arbitrer::{self, Bookie, BookieStage, Table, MarkedOffer};
 use combo::{self, Combo};
 
 pub fn run() {
@@ -63,10 +63,7 @@ fn send_index(res: Response) -> Result<()> {
     let combos = combo::load_recent(COMBO_COUNT);
     render_combos(&mut buffer, &combos);
 
-    {
-        let bucket = arbitrer::acquire_bucket();
-        render_bucket(&mut buffer, &*bucket);
-    }
+    render_table(&mut buffer, &arbitrer::TABLE);
 
     render_footer(&mut buffer, now.elapsed());
 
@@ -181,34 +178,34 @@ fn render_combos(b: &mut String, combos: &[Combo]) {
     }
 }
 
-fn render_bucket(b: &mut String, bucket: &Bucket) {
-    if bucket.is_empty() {
+fn render_table(b: &mut String, table: &Table) {
+    let mut groups = HashMap::new();
+
+    for market in table.iter() {
+        let pair = (market[0].1.game.clone(), market[0].1.kind.clone());
+        let vec = groups.entry(pair).or_insert_with(Vec::new);
+        vec.push(market.to_vec());
+    }
+
+    if groups.is_empty() {
         return;
     }
 
     writeln!(b, "# Markets");
 
-    let mut groups = HashMap::new();
-
-    for (offer, event) in bucket.iter() {
-        let pair = (offer.game.clone(), offer.kind.clone());
-        let vec = groups.entry(pair).or_insert_with(Vec::new);
-        vec.push(event);
-    }
-
-    for ((game, _kind), mut bucket) in groups {
+    for ((game, _kind), mut markets) in groups {
         //writeln!(b, "## {:?} [{:?}]", game, kind);  // TODO(loyd): enable after nested.
         writeln!(b, "## {:?}", game);
 
-        bucket.sort_by_key(|event| event[0].1.date);
+        markets.sort_by_key(|market| market[0].1.date);
 
-        for event in bucket {
-            let outcome_count = event[0].1.outcomes.len();
+        for market in markets {
+            let outcome_count = market[0].1.outcomes.len();
 
             writeln!(b, "{}", iter::repeat('|').take(outcome_count + 4).collect::<String>());
             writeln!(b, "|{}", iter::repeat("---|").take(outcome_count + 3).collect::<String>());
 
-            for &MarkedOffer(bookie, ref offer) in event {
+            for &MarkedOffer(bookie, ref offer) in &*market {
                 write!(b, "|`{date}`|{host}|#{oid}|",
                        date = format_date(offer.date, "%d/%m %R"),
                        host = bookie.host,

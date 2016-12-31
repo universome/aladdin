@@ -1,5 +1,4 @@
-#![feature(plugin, custom_derive, static_in_const, specialization, receiver_try_iter)]
-#![feature(conservative_impl_trait)]
+#![feature(plugin, custom_derive, static_in_const, specialization, conservative_impl_trait)]
 #![plugin(serde_macros)]
 
 #[macro_use]
@@ -21,6 +20,7 @@ extern crate serde_json;
 extern crate websocket;
 extern crate rusqlite;
 extern crate backtrace;
+extern crate parking_lot;
 
 use std::thread;
 
