@@ -17,7 +17,13 @@ use base::currency::Currency;
 use arbitrer::{self, Bookie, BookieStage, Table, MarkedOffer};
 use combo::{self, Combo};
 
+lazy_static! {
+    static ref START_DATE: u32 = time::get_time().sec as u32;
+}
+
 pub fn run() {
+    *START_DATE;
+
     let mut server = Server::http(("0.0.0.0", PORT)).unwrap();
 
     server.keep_alive(None);
@@ -228,7 +234,8 @@ fn render_table(b: &mut String, table: &Table) {
 fn render_footer(b: &mut String, spent: Duration) {
     let ms = spent.as_secs() as u32 * 1_000 + spent.subsec_nanos() / 1_000_000;
     writeln!(b, "---");
-    writeln!(b, "> Rendered in `{}ms`", ms);
+    writeln!(b, "> Rendered in `{}ms`\n", ms);
+    writeln!(b, "> Started at `{}`", format_date(*START_DATE, "%d/%m %R"));
     write!(b, "</xmp>");
 }
 
