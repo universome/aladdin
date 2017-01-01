@@ -2,7 +2,7 @@ use std::char;
 use std::iter::FilterMap;
 use std::str::Chars;
 
-use markets::{Offer, Outcome, DRAW};
+use markets::{Offer, Game, Kind, Outcome, DRAW};
 
 #[derive(Debug, Clone, Copy)]
 struct Token<'a>(&'a str);
@@ -58,13 +58,17 @@ impl<'a> PartialEq for Token<'a> {
     }
 }
 
+pub type Headline = (u32, Game, Kind, usize);
+
+pub fn get_headline(offer: &Offer) -> Headline {
+    (round_date(offer.date), offer.game, offer.kind, offer.outcomes.len())
+}
+
 pub fn compare_offers(left: &Offer, right: &Offer) -> bool {
     debug_assert!(left.outcomes.len() <= 3);
     debug_assert!(right.outcomes.len() <= 3);
 
-    if left.game != right.game || left.kind != right.kind
-    || left.outcomes.len() != right.outcomes.len()
-    || round_date(left.date) != round_date(right.date) {
+    if get_headline(left) != get_headline(right) {
         return false;
     }
 
@@ -167,7 +171,7 @@ fn abbreviation_sim(abbr: Token, title: &str) -> f64 {
     matched as f64 / abbr.len() as f64
 }
 
-pub fn round_date(ts: u32) -> u32 {
+fn round_date(ts: u32) -> u32 {
     (ts + 15 * 60) / (30 * 60) * (30 * 60)
 }
 

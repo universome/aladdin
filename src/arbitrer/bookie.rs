@@ -262,7 +262,7 @@ impl Bookie {
                 },
                 Entry::Occupied(ref entry) if entry.get() == &offer => return,
                 Entry::Occupied(mut entry) => {
-                    if matcher::compare_offers(entry.get(), &offer) {
+                    if matcher::get_headline(&offer) != matcher::get_headline(entry.get()) {
                         *entry.get_mut() = offer.clone();
                         (None, Some(offer))
                     } else {

@@ -163,12 +163,7 @@ impl Table {
 
     fn get_entry(&self, offer: &Offer) -> MutexGuard<Entry> {
         let state = &mut self.rand_state.build_hasher();
-
-        matcher::round_date(offer.date).hash(state);
-        offer.game.hash(state);
-        offer.kind.hash(state);
-        offer.outcomes.len().hash(state);
-
+        matcher::get_headline(offer).hash(state);
         let hash = state.finish();
 
         self.entries[hash as usize % self.entries.len()].lock()
