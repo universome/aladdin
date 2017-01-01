@@ -54,6 +54,7 @@ fn format(record: &LogRecord) -> String {
             message = record.args())
 }
 
+#[inline]
 fn trim_target(target: &str) -> &str {
     if target.starts_with("aladdin::") {
         target.rsplit("::").next().unwrap()
@@ -62,6 +63,7 @@ fn trim_target(target: &str) -> &str {
     }
 }
 
+#[inline]
 fn truncate(mut data: String) -> String {
     if let Some(pos) = data.find('\n') {
         data.truncate(pos);

@@ -9,6 +9,7 @@ struct Token<'a>(&'a str);
 
 type TokenImpl<'a> = FilterMap<Chars<'a>, fn(char) -> Option<char>>;
 
+#[inline]
 fn transform(c: char) -> Option<char> {
     if c.is_alphabetic() || c.is_digit(10) {
         c.to_lowercase().next()
@@ -18,20 +19,24 @@ fn transform(c: char) -> Option<char> {
 }
 
 impl<'a> Token<'a> {
+    #[inline]
     fn is_abbr(&self) -> bool {
         self.0.chars().filter(|c| c.is_alphabetic()).all(|c| c.is_uppercase())
     }
 
+    #[inline]
     fn len(&self) -> usize {
         self.into_iter().count()
     }
 
+    #[inline]
     fn starts_with(&self, other: Token) -> bool {
         let mut other_it = other.into_iter();
 
         self.into_iter().zip(other_it.by_ref()).all(|(l, r)| l == r) && other_it.next().is_none()
     }
 
+    #[inline]
     fn is_empty(&self) -> bool {
         self.into_iter().next().is_none()
     }
@@ -41,18 +46,21 @@ impl<'a> IntoIterator for Token<'a> {
     type Item = char;
     type IntoIter = TokenImpl<'a>;
 
+    #[inline]
     fn into_iter(self) -> TokenImpl<'a> {
         self.0.chars().filter_map(transform)
     }
 }
 
 impl<'a> From<&'a str> for Token<'a> {
+    #[inline]
     fn from(word: &str) -> Token {
         Token(word)
     }
 }
 
 impl<'a> PartialEq for Token<'a> {
+    #[inline]
     fn eq(&self, other: &Token) -> bool {
         self.into_iter().eq(other.into_iter())
     }
@@ -60,6 +68,7 @@ impl<'a> PartialEq for Token<'a> {
 
 pub type Headline = (u32, Game, Kind, usize);
 
+#[inline]
 pub fn get_headline(offer: &Offer) -> Headline {
     (round_date(offer.date), offer.game, offer.kind, offer.outcomes.len())
 }
@@ -102,14 +111,17 @@ pub fn compare_offers(left: &Offer, right: &Offer) -> bool {
     (score / max_score) >= 0.7
 }
 
+#[inline]
 fn outcomes_sim(lhs: &Outcome, rhs: &Outcome) -> f64 {
     titles_sim(&lhs.0, &rhs.0) * 0.8 + coefs_sim(lhs.1, rhs.1) * 0.2
 }
 
+#[inline]
 fn coefs_sim(lhs: f64, rhs: f64) -> f64 {
     1. - (lhs - rhs).abs() / (lhs + rhs) // ultra formula :|
 }
 
+#[inline]
 fn titles_sim(left: &str, right: &str) -> f64 {
     tokens_sim(left, right) * 0.5 + tokens_sim(right, left) * 0.5
 }
@@ -171,11 +183,12 @@ fn abbreviation_sim(abbr: Token, title: &str) -> f64 {
     matched as f64 / abbr.len() as f64
 }
 
+#[inline]
 fn round_date(ts: u32) -> u32 {
     (ts + 15 * 60) / (30 * 60) * (30 * 60)
 }
 
-// Sorts outcomes according to some etalon offer
+// Sorts outcomes according to some etalon offer.
 pub fn collate_outcomes<'a>(etalon: &[Outcome], outcomes: &'a [Outcome]) -> Vec<&'a Outcome> {
     let mut result = outcomes.iter().collect::<Vec<_>>();
 
@@ -188,7 +201,7 @@ pub fn collate_outcomes<'a>(etalon: &[Outcome], outcomes: &'a [Outcome]) -> Vec<
     result
 }
 
-// Finds most similar outcome and returns its index in slice
+// Finds most similar outcome and returns its index in slice.
 fn most_similar_outcome(outcome: &Outcome, outcomes: &[&Outcome]) -> usize {
     let mut max_sim = 0.;
     let mut index = 0;

@@ -33,6 +33,7 @@ pub enum Stage {
 }
 
 impl From<isize> for Stage {
+    #[inline]
     fn from(stage: isize) -> Stage {
         match stage {
             -1 => Initial,
@@ -46,6 +47,7 @@ impl From<isize> for Stage {
 }
 
 impl Into<isize> for Stage {
+    #[inline]
     fn into(self) -> isize {
         match self {
             Initial => -1,
@@ -70,6 +72,7 @@ pub struct Bookie {
 }
 
 impl PartialEq for Bookie {
+    #[inline]
     fn eq(&self, other: &Bookie) -> bool {
         self as *const _ == other as *const _
     }
@@ -92,38 +95,47 @@ impl Bookie {
         }
     }
 
+    #[inline]
     pub fn stage(&self) -> Stage {
         self.stage.load(Relaxed).into()
     }
 
+    #[inline]
     fn set_stage(&self, stage: Stage) {
         self.stage.store(stage.into(), Relaxed);
     }
 
+    #[inline]
     pub fn balance(&self) -> Currency {
         Currency(self.balance.load(Relaxed) as i64)
     }
 
+    #[inline]
     fn set_balance(&self, balance: Currency) {
         self.balance.store(balance.0 as isize, Relaxed);
     }
 
+    #[inline]
     fn delay(&self) -> u32 {
         self.delay.load(Relaxed) as u32
     }
 
+    #[inline]
     fn set_delay(&self, delay: u32) {
         self.delay.store(delay as usize, Relaxed);
     }
 
+    #[inline]
     pub fn offer_count(&self) -> usize {
         self.offers.read().len()
     }
 
+    #[inline]
     pub fn hold_stake(&self, stake: Currency) {
         self.balance.fetch_sub(stake.0 as isize, Relaxed);
     }
 
+    #[inline]
     pub fn release_stake(&self, stake: Currency) {
         self.balance.fetch_add(stake.0 as isize, Relaxed);
     }

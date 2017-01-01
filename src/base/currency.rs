@@ -15,6 +15,7 @@ impl Display for Currency {
 impl Add for Currency {
     type Output = Currency;
 
+    #[inline]
     fn add(self, rhs: Currency) -> Currency {
         Currency(self.0 + rhs.0)
     }
@@ -23,6 +24,7 @@ impl Add for Currency {
 impl Sub for Currency {
     type Output = Currency;
 
+    #[inline]
     fn sub(self, rhs: Currency) -> Currency {
         Currency(self.0 - rhs.0)
     }
@@ -31,6 +33,7 @@ impl Sub for Currency {
 impl Mul<f64> for Currency {
     type Output = Currency;
 
+    #[inline]
     fn mul(self, rhs: f64) -> Currency {
         if rhs.is_normal() {
             Currency((self.0 as f64 * rhs).round() as i64)
@@ -43,6 +46,7 @@ impl Mul<f64> for Currency {
 impl Mul<Currency> for f64 {
     type Output = Currency;
 
+    #[inline]
     fn mul(self, rhs: Currency) -> Currency {
         if self.is_normal() {
             Currency((self * rhs.0 as f64).round() as i64)
@@ -53,6 +57,7 @@ impl Mul<Currency> for f64 {
 }
 
 impl From<f64> for Currency {
+    #[inline]
     fn from(float: f64) -> Currency {
         if float.is_normal() {
             Currency((float * 100.).round() as i64)
@@ -63,6 +68,7 @@ impl From<f64> for Currency {
 }
 
 impl Into<f64> for Currency {
+    #[inline]
     fn into(self) -> f64 {
         (self.0 as f64) / 100.
     }

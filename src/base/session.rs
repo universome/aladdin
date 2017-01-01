@@ -95,6 +95,7 @@ impl Session {
 pub enum Type { Json, Form }
 
 impl Into<Mime> for Type {
+    #[inline]
     fn into(self) -> Mime {
         match self {
             Type::Json => mime!(Application/Json),
@@ -136,16 +137,19 @@ impl<'a> RequestBuilder<'a> {
         }
     }
 
+    #[inline]
     pub fn content_type(mut self, content_type: Type) -> RequestBuilder<'a> {
         self.headers.set(ContentType(content_type.into()));
         self
     }
 
+    #[inline]
     pub fn timeouts(mut self, timeouts: Option<(u64, u64)>) -> RequestBuilder<'a> {
         self.timeouts = timeouts;
         self
     }
 
+    #[inline]
     pub fn headers(mut self, headers: &[(&'static str, &str)]) -> RequestBuilder<'a> {
         for &(name, value) in headers {
             self.headers.set_raw(name, vec![value.as_bytes().to_vec()]);
@@ -153,15 +157,18 @@ impl<'a> RequestBuilder<'a> {
         self
     }
 
+    #[inline]
     pub fn follow_redirects(mut self, follow_redirects: bool) -> RequestBuilder<'a> {
         self.follow_redirects = follow_redirects;
         self
     }
 
+    #[inline]
     pub fn get<R: Receivable>(&self) -> Result<R> {
         self.send::<R, String>(None)
     }
 
+    #[inline]
     pub fn post<R: Receivable, S: Sendable>(&self, body: S) -> Result<R> {
         self.send(Some(body))
     }
@@ -256,6 +263,7 @@ pub trait Receivable: Sized {
 }
 
 impl Receivable for String {
+    #[inline]
     fn read(mut response: Response) -> Result<String> {
         let mut string = String::new();
         try!(response.read_to_string(&mut string));
@@ -265,12 +273,14 @@ impl Receivable for String {
 }
 
 impl<T: Deserialize> Receivable for T {
+    #[inline]
     default fn read(response: Response) -> Result<T> {
         Ok(try!(json::from_reader(response)))
     }
 }
 
 impl Receivable for NodeRef {
+    #[inline]
     fn read(response: Response) -> Result<NodeRef> {
         Ok(try!(kuchiki::parse_html().from_http(response)))
     }
@@ -281,18 +291,21 @@ pub trait Sendable {
 }
 
 impl<S: Serialize> Sendable for S {
+    #[inline]
     default fn to_string(&self) -> Result<String> {
         Ok(try!(json::to_string(&self)))
     }
 }
 
 impl Sendable for String {
+    #[inline]
     fn to_string(&self) -> Result<String> {
         Ok(self.to_owned())
     }
 }
 
 impl<'a> Sendable for Vec<(&'a str, &'a str)> {
+    #[inline]
     fn to_string(&self) -> Result<String> {
         Ok(UrlSerializer::new(String::new()).extend_pairs(self.iter()).finish())
     }
