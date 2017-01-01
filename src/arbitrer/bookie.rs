@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicIsize, AtomicUsize};
 use std::sync::atomic::Ordering::Relaxed;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use time;
 
 use constants::{MIN_RETRY_DELAY, MAX_RETRY_DELAY};
@@ -254,27 +255,22 @@ impl Bookie {
         let mut offers = self.offers.lock().unwrap();
 
         match message {
-            Upsert(offer) => {
-                if !offers.contains_key(&offer.oid) {
-                    cb(offer.clone(), true);
-                    offers.insert(offer.oid, offer);
-                    return;
+            Upsert(offer) => match offers.entry(offer.oid) {
+                Entry::Vacant(entry) => {
+                    entry.insert(offer.clone());
+                    cb(offer, true);
+                },
+                Entry::Occupied(ref entry) if entry.get() == &offer => return,
+                Entry::Occupied(mut entry) => {
+                    if matcher::compare_offers(entry.get(), &offer) {
+                        *entry.get_mut() = offer.clone();
+                    } else {
+                        let stored = entry.insert(offer.clone());
+                        cb(stored, false);
+                    }
+
+                    cb(offer, true);
                 }
-
-                let stored = offers.get_mut(&offer.oid).unwrap();
-
-                if !matcher::compare_offers(stored, &offer) {
-                    cb(stored.clone(), false);
-                    cb(offer.clone(), true);
-
-                    return;
-                }
-
-                if stored != &offer {
-                    cb(offer.clone(), true);
-                }
-
-                *stored = offer;
             },
             Remove(oid) => {
                 if let Some(offer) = offers.remove(&oid) {
