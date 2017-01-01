@@ -2,11 +2,11 @@
 
 use std::collections::HashMap;
 use std::result::Result as StdResult;
-use std::sync::Mutex;
 use kuchiki::NodeRef;
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
 use serde_json as json;
+use parking_lot::Mutex;
 use time;
 
 use base::error::{Result, Error};
@@ -84,7 +84,7 @@ impl BetWay {
     }
 
     fn set_user_state(&self) -> Result<()> {
-        let mut state = try!(self.state.lock());
+        let mut state = self.state.lock();
         let customer_info = try!(self.get_customer_info());
 
         state.user_id = customer_info.userId;
@@ -94,7 +94,7 @@ impl BetWay {
     }
 
     fn try_place_bet(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<PlaceBetResponse> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock();
 
         let event_id = try!(state.markets_to_events.get(&(offer.oid as u32)).ok_or("No such market"));
         let event = try!(state.events.get(&event_id).ok_or("No such event"));
@@ -186,7 +186,7 @@ impl Gambler for BetWay {
         let session = self.session.get_cookie("SESSION").unwrap();
 
         loop {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock();
 
             if timer.next_if_elapsed() {
                 let events_ids = try!(self.get_events_ids());

@@ -2,8 +2,8 @@
 
 use std::io::Read;
 use std::time::Duration;
+use parking_lot::RwLock;
 use time;
-use std::sync::Mutex;
 use url::form_urlencoded::Serializer as UrlSerializer;
 use hyper::error::{Error as HyperError, Result as HyperResult};
 use hyper::client::{Client, RedirectPolicy, Response};
@@ -27,7 +27,7 @@ const USER_AGENT: &str = "Lynx/2.8.8rel.2 libwww-FM/2.14 SSL-MM/1.4.1 OpenSSL/1.
 
 pub struct Session {
     host: String,
-    cookie: Mutex<Cookie>,
+    cookie: RwLock<Cookie>,
     client: Client
 }
 
@@ -42,12 +42,12 @@ impl Session {
         Session {
             host: host.to_string(),
             client: client,
-            cookie: Mutex::new(Cookie(vec![]))
+            cookie: RwLock::new(Cookie(vec![]))
         }
     }
 
     pub fn get_cookie(&self, cookie_name: &str) -> Option<String> {
-        for cookie in self.cookie.lock().unwrap().iter() {
+        for cookie in self.cookie.read().iter() {
             if cookie.name == cookie_name {
                 return Some(cookie.value.clone());
             }
@@ -63,7 +63,7 @@ impl Session {
     }
 
     pub fn set_cookies(&self, cookies: &[CookiePair]) {
-        let mut current = self.cookie.lock().unwrap();
+        let mut current = self.cookie.write();
 
         for c in cookies {
             let mut cookie = c.clone();
@@ -86,7 +86,7 @@ impl Session {
     }
 
     pub fn actualize_cookies(&self) {
-        let mut cookies = self.cookie.lock().unwrap();
+        let mut cookies = self.cookie.write();
 
         cookies.retain(|c| c.expires.map_or(true, |e| e > time::now()));
     }
@@ -234,7 +234,7 @@ impl<'a> RequestBuilder<'a> {
 
         self.session.actualize_cookies();
         let mut headers = self.headers.clone();
-        let cookie = self.session.cookie.lock().unwrap().clone();
+        let cookie = self.session.cookie.read().clone();
         headers.set(cookie);
 
         let response = try!(builder.headers(headers).send());

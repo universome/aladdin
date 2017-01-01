@@ -40,9 +40,9 @@ fn init_bookies() -> Vec<Bookie> {
     ACCOUNTS.iter().map(|info| Bookie::new(info.0, info.1, info.2)).collect()
 }
 
-fn accumulation(tx: Sender<Offer>) {
+fn accumulation(chan: Sender<Offer>) {
     for bookie in BOOKIES.iter() {
-        let tx = tx.clone();
+        let tx = chan.clone();
 
         thread::Builder::new()
             .name(bookie.host.clone())

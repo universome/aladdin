@@ -1,11 +1,11 @@
 use std::cmp;
 use std::thread;
 use std::time::Duration;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicIsize, AtomicUsize};
 use std::sync::atomic::Ordering::Relaxed;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use parking_lot::RwLock;
 use time;
 
 use constants::{MIN_RETRY_DELAY, MAX_RETRY_DELAY};
@@ -66,7 +66,7 @@ pub struct Bookie {
     stage: AtomicIsize,
     delay: AtomicUsize,
     balance: AtomicIsize,
-    offers: Mutex<HashMap<OID, Offer>>
+    offers: RwLock<HashMap<OID, Offer>>
 }
 
 impl PartialEq for Bookie {
@@ -88,7 +88,7 @@ impl Bookie {
             stage: AtomicIsize::new(Initial.into()),
             delay: AtomicUsize::new(0),
             balance: AtomicIsize::new(0),
-            offers: Mutex::new(HashMap::new())
+            offers: RwLock::new(HashMap::new())
         }
     }
 
@@ -117,7 +117,7 @@ impl Bookie {
     }
 
     pub fn offer_count(&self) -> usize {
-        self.offers.lock().unwrap().len()
+        self.offers.read().len()
     }
 
     pub fn hold_stake(&self, stake: Currency) {
@@ -129,7 +129,7 @@ impl Bookie {
     }
 
     pub fn drain(&self) -> Vec<Offer> {
-        let mut offers = self.offers.lock().unwrap();
+        let mut offers = self.offers.write();
         // Workaround rust-lang/rust#21114.
         return offers.drain().map(|(_, o)| o).collect();
     }
@@ -156,7 +156,7 @@ impl Bookie {
     }
 
     pub fn glance_offer(&self, offer: &Offer) -> bool {
-        let offers = self.offers.lock().unwrap();
+        let offers = self.offers.read();
         offers.get(&offer.oid).map_or(false, |o| o == offer)
     }
 
@@ -252,31 +252,38 @@ impl Bookie {
     }
 
     fn handle_message<F: Fn(Offer, bool)>(&self, message: Message, cb: &F) {
-        let mut offers = self.offers.lock().unwrap();
+        let mut offers = self.offers.write();
 
-        match message {
+        let (remove, upsert) = match message {
             Upsert(offer) => match offers.entry(offer.oid) {
                 Entry::Vacant(entry) => {
                     entry.insert(offer.clone());
-                    cb(offer, true);
+                    (None, Some(offer))
                 },
                 Entry::Occupied(ref entry) if entry.get() == &offer => return,
                 Entry::Occupied(mut entry) => {
                     if matcher::compare_offers(entry.get(), &offer) {
                         *entry.get_mut() = offer.clone();
+                        (None, Some(offer))
                     } else {
                         let stored = entry.insert(offer.clone());
-                        cb(stored, false);
+                        (Some(stored), Some(offer))
                     }
-
-                    cb(offer, true);
                 }
             },
-            Remove(oid) => {
-                if let Some(offer) = offers.remove(&oid) {
-                    cb(offer, false);
-                }
-            }
+            Remove(oid) => (offers.remove(&oid), None)
+        };
+
+        // Drop the guard before calling the callback to prevent possible deadlocks.
+        drop(offers);
+
+        // We should remove before upsert for readding cases.
+        if let Some(remove) = remove {
+            cb(remove, false);
+        }
+
+        if let Some(upsert) = upsert {
+            cb(upsert, true);
         }
     }
 }

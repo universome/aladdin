@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
-use std::sync::Mutex;
 use std::collections::{HashMap, HashSet};
+use parking_lot::Mutex;
 
 use base::error::{Result, Error};
 use base::session::Session;
@@ -80,7 +80,7 @@ impl Gambler for BetClub {
                     active.remove(&offer.oid);
                 }
 
-                let mut events = self.events.lock().unwrap();
+                let mut events = self.events.lock();
 
                 // Now `active` contains inactive.
                 for oid in active.drain() {
@@ -101,7 +101,7 @@ impl Gambler for BetClub {
     }
 
     fn check_offer(&self, offer: &Offer, outcome: &Outcome, _: Currency) -> Result<bool> {
-        let events = self.events.lock().unwrap();
+        let events = self.events.lock();
 
         let sport_id = match events.get(&offer.oid) {
             Some(event) => event.SId,
@@ -118,7 +118,7 @@ impl Gambler for BetClub {
     }
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
-        let events = self.events.lock().unwrap();
+        let events = self.events.lock();
 
         let event = try!(events.get(&offer.oid).ok_or("No such event"));
         let market = event.get_market().unwrap();

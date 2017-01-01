@@ -1,8 +1,8 @@
 use std::env;
-use std::sync::{RwLock, RwLockReadGuard};
 use std::collections::VecDeque;
 use log::{self, Log, LogRecord, LogLevel, LogMetadata, SetLoggerError};
 use env_logger::{LogBuilder as EnvLogBuilder, Logger as EnvLogger};
+use parking_lot::{RwLock, RwLockReadGuard};
 use time;
 
 use constants::HISTORY_SIZE;
@@ -83,7 +83,7 @@ lazy_static! {
 }
 
 fn save_to_history(message: Message) {
-    let mut history = HISTORY.write().unwrap();
+    let mut history = HISTORY.write();
 
     if let Some(last) = history.back_mut() {
         if (&last.module, &last.data) == (&message.module, &message.data) {
@@ -100,7 +100,7 @@ fn save_to_history(message: Message) {
 }
 
 pub fn acquire_history() -> RwLockReadGuard<'static, VecDeque<Message>> {
-    HISTORY.read().unwrap()
+    HISTORY.read()
 }
 
 pub fn init() -> Result<(), SetLoggerError> {

@@ -1,68 +1,44 @@
-use std::sync::{Mutex, Condvar};
 use std::time::Duration;
+use parking_lot::{Mutex, Condvar};
 
 pub struct Barrier {
     n: u32,
-    state: Mutex<State>,
+    count: Mutex<u32>,
     cvar: Condvar
-}
-
-struct State {
-    count: u32,
-    generation: u32
 }
 
 impl Barrier {
     pub fn new(n: u32) -> Barrier {
         Barrier {
             n: n,
-            state: Mutex::new(State {
-                count: 0,
-                generation: 0
-            }),
+            count: Mutex::new(0),
             cvar: Condvar::new()
         }
     }
 
     pub fn wait(&self) {
-        let mut state = self.state.lock().unwrap();
-        state.count += 1;
+        let mut count = self.count.lock();
+        *count += 1;
 
-        let generation = state.generation;
-
-        if state.count < self.n {
-            while generation == state.generation && state.count < self.n {
-                state = self.cvar.wait(state).unwrap();
-            }
+        if *count < self.n {
+            self.cvar.wait(&mut count);
         } else {
-            state.count = 0;
-            state.generation += 1;
+            *count = 0;
             self.cvar.notify_all();
         }
     }
 
     pub fn wait_timeout(&self, timeout: Duration) -> bool {
-        let mut state = self.state.lock().unwrap();
-        state.count += 1;
+        let mut count = self.count.lock();
+        *count += 1;
 
-        let generation = state.generation;
-
-        if state.count < self.n {
-            while generation == state.generation && state.count < self.n {
-                let result = self.cvar.wait_timeout(state, timeout).unwrap();
-                state = result.0;
-
-                if result.1.timed_out() {
-                    return false;
-                }
-            }
+        if *count < self.n {
+            !self.cvar.wait_for(&mut count, timeout).timed_out()
         } else {
-            state.count = 0;
-            state.generation += 1;
+            *count = 0;
             self.cvar.notify_all();
+            true
         }
-
-        true
     }
 }
 
