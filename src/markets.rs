@@ -18,7 +18,7 @@ pub struct Outcome(pub String, pub f64);
 
 pub static DRAW: &str = "(draw)";
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Game {
     CounterStrike,
     CrossFire,
@@ -77,7 +77,7 @@ pub enum Game {
     Hurling
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
     Series
 }

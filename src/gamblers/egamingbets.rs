@@ -1,9 +1,9 @@
 use std::cmp;
-use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
 use std::collections::{BinaryHeap, HashMap};
 use kuchiki::NodeRef;
+use parking_lot::Mutex;
 use time;
 
 use base::error::{Result, Error};
@@ -52,7 +52,7 @@ impl Gambler for EGB {
         let html: NodeRef = try!(self.session.request("/tables").get());
         let csrf = try!(extract_csrf(html));
 
-        let mut guard = self.csrf.lock().unwrap();
+        let mut guard = self.csrf.lock();
         *guard = csrf;
 
         Ok(())
@@ -159,7 +159,7 @@ impl Gambler for EGB {
         let stake: f64 = stake.into();
         let idx = 1 + offer.outcomes.iter().position(|o| o == &outcome).unwrap();
 
-        let csrf = self.csrf.lock().unwrap();
+        let csrf = self.csrf.lock();
 
         let request = self.session.request("/bets")
             .headers(&[("X-CSRF-Token", &*csrf)])

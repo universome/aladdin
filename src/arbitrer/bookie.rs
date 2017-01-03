@@ -1,10 +1,11 @@
 use std::cmp;
 use std::thread;
 use std::time::Duration;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicIsize, AtomicUsize};
 use std::sync::atomic::Ordering::Relaxed;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use parking_lot::RwLock;
 use time;
 
 use constants::{MIN_RETRY_DELAY, MAX_RETRY_DELAY};
@@ -32,6 +33,7 @@ pub enum Stage {
 }
 
 impl From<isize> for Stage {
+    #[inline]
     fn from(stage: isize) -> Stage {
         match stage {
             -1 => Initial,
@@ -45,6 +47,7 @@ impl From<isize> for Stage {
 }
 
 impl Into<isize> for Stage {
+    #[inline]
     fn into(self) -> isize {
         match self {
             Initial => -1,
@@ -65,10 +68,11 @@ pub struct Bookie {
     stage: AtomicIsize,
     delay: AtomicUsize,
     balance: AtomicIsize,
-    offers: Mutex<HashMap<OID, Offer>>
+    offers: RwLock<HashMap<OID, Offer>>
 }
 
 impl PartialEq for Bookie {
+    #[inline]
     fn eq(&self, other: &Bookie) -> bool {
         self as *const _ == other as *const _
     }
@@ -87,48 +91,57 @@ impl Bookie {
             stage: AtomicIsize::new(Initial.into()),
             delay: AtomicUsize::new(0),
             balance: AtomicIsize::new(0),
-            offers: Mutex::new(HashMap::new())
+            offers: RwLock::new(HashMap::new())
         }
     }
 
+    #[inline]
     pub fn stage(&self) -> Stage {
         self.stage.load(Relaxed).into()
     }
 
+    #[inline]
     fn set_stage(&self, stage: Stage) {
         self.stage.store(stage.into(), Relaxed);
     }
 
+    #[inline]
     pub fn balance(&self) -> Currency {
         Currency(self.balance.load(Relaxed) as i64)
     }
 
+    #[inline]
     fn set_balance(&self, balance: Currency) {
         self.balance.store(balance.0 as isize, Relaxed);
     }
 
+    #[inline]
     fn delay(&self) -> u32 {
         self.delay.load(Relaxed) as u32
     }
 
+    #[inline]
     fn set_delay(&self, delay: u32) {
         self.delay.store(delay as usize, Relaxed);
     }
 
+    #[inline]
     pub fn offer_count(&self) -> usize {
-        self.offers.lock().unwrap().len()
+        self.offers.read().len()
     }
 
+    #[inline]
     pub fn hold_stake(&self, stake: Currency) {
         self.balance.fetch_sub(stake.0 as isize, Relaxed);
     }
 
+    #[inline]
     pub fn release_stake(&self, stake: Currency) {
         self.balance.fetch_add(stake.0 as isize, Relaxed);
     }
 
     pub fn drain(&self) -> Vec<Offer> {
-        let mut offers = self.offers.lock().unwrap();
+        let mut offers = self.offers.write();
         // Workaround rust-lang/rust#21114.
         return offers.drain().map(|(_, o)| o).collect();
     }
@@ -155,7 +168,7 @@ impl Bookie {
     }
 
     pub fn glance_offer(&self, offer: &Offer) -> bool {
-        let offers = self.offers.lock().unwrap();
+        let offers = self.offers.read();
         offers.get(&offer.oid).map_or(false, |o| o == offer)
     }
 
@@ -251,36 +264,38 @@ impl Bookie {
     }
 
     fn handle_message<F: Fn(Offer, bool)>(&self, message: Message, cb: &F) {
-        let mut offers = self.offers.lock().unwrap();
+        let mut offers = self.offers.write();
 
-        match message {
-            Upsert(offer) => {
-                if !offers.contains_key(&offer.oid) {
-                    cb(offer.clone(), true);
-                    offers.insert(offer.oid, offer);
-                    return;
+        let (remove, upsert) = match message {
+            Upsert(offer) => match offers.entry(offer.oid) {
+                Entry::Vacant(entry) => {
+                    entry.insert(offer.clone());
+                    (None, Some(offer))
+                },
+                Entry::Occupied(ref entry) if entry.get() == &offer => return,
+                Entry::Occupied(mut entry) => {
+                    if matcher::get_headline(&offer) == matcher::get_headline(entry.get()) {
+                        *entry.get_mut() = offer.clone();
+                        (None, Some(offer))
+                    } else {
+                        let stored = entry.insert(offer.clone());
+                        (Some(stored), Some(offer))
+                    }
                 }
-
-                let stored = offers.get_mut(&offer.oid).unwrap();
-
-                if !matcher::compare_offers(stored, &offer) {
-                    cb(stored.clone(), false);
-                    cb(offer.clone(), true);
-
-                    return;
-                }
-
-                if stored != &offer {
-                    cb(offer.clone(), true);
-                }
-
-                *stored = offer;
             },
-            Remove(oid) => {
-                if let Some(offer) = offers.remove(&oid) {
-                    cb(offer, false);
-                }
-            }
+            Remove(oid) => (offers.remove(&oid), None)
+        };
+
+        // Drop the guard before calling the callback to prevent possible deadlocks.
+        drop(offers);
+
+        // We should remove before upsert for readding cases.
+        if let Some(remove) = remove {
+            cb(remove, false);
+        }
+
+        if let Some(upsert) = upsert {
+            cb(upsert, true);
         }
     }
 }

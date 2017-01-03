@@ -2,11 +2,11 @@
 
 use std::result::Result as StdResult;
 use std::collections::HashMap;
-use std::sync::Mutex;
 use serde::{Deserialize, Deserializer};
 use serde_json as json;
 use time;
 use url::percent_encoding::{utf8_percent_encode, USERINFO_ENCODE_SET};
+use parking_lot::Mutex;
 
 use base::currency::Currency;
 use base::timers::Periodic;
@@ -138,7 +138,7 @@ impl Gambler for VitalBet {
 
         loop {
             if full_refresh_timer.next_if_elapsed() {
-                let mut state = try!(self.state.lock());
+                let mut state = self.state.lock();
 
                 state.odds_to_events = HashMap::new();
                 state.markets_to_events = HashMap::new();
@@ -168,7 +168,7 @@ impl Gambler for VitalBet {
             let messages = try!(self.session.request(&polling_path).get::<PollingResponse>());
             let updates = flatten_updates(messages.M);
 
-            let mut state = try!(self.state.lock());
+            let mut state = self.state.lock();
 
             for update in updates {
                 if let Some(mut event) = find_event_for_update(&mut state, &update) {
@@ -206,7 +206,7 @@ impl Gambler for VitalBet {
     }
 
     fn check_offer(&self, offer: &Offer, outcome: &Outcome, stake: Currency) -> Result<bool> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock();
 
         let event = match state.events.get(&(offer.oid as u32)) {
             Some(event) => event,
@@ -234,7 +234,7 @@ impl Gambler for VitalBet {
     }
 
     fn place_bet(&self, offer: Offer, outcome: Outcome, stake: Currency) -> Result<()> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock();
 
         let event = try!(state.events.get(&(offer.oid as u32)).ok_or("No such event"));
         let response = try!(self.try_place_bet(event, &outcome, stake));

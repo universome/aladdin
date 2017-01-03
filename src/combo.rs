@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use rusqlite::{Connection, Row};
 
 use constants::DATABASE;
@@ -56,7 +56,7 @@ const COMBO_SCHEMA: &str = "combo(
 )";
 
 pub fn contains(host: &str, id: u64) -> bool {
-    let db = DB.lock().unwrap();
+    let db = DB.lock();
     let mut stmt = db.prepare_cached("SELECT id FROM bet WHERE host = ? AND id = ?").unwrap();
 
     stmt.exists(&[&host, &(id as i64)]).unwrap()
@@ -70,7 +70,7 @@ pub fn save(combo: Combo) {
     const INSERT_COMBO: &str = "INSERT INTO combo(date, game, kind, bet_1, bet_2, bet_3)
                                 VALUES (:date, :game, :kind, :bet_1, :bet_2, :bet_3)";
 
-    let mut db = DB.lock().unwrap();
+    let mut db = DB.lock();
     let tx = db.transaction().unwrap();
 
     let row_ids = combo.bets.iter().map(|bet| {
@@ -103,7 +103,7 @@ pub fn save(combo: Combo) {
 }
 
 pub fn mark_as_placed(host: &str, id: u64, title: Option<&str>) {
-    let db = DB.lock().unwrap();
+    let db = DB.lock();
 
     let mut stmt = db.prepare_cached("UPDATE bet SET placed = 1
                                       WHERE host = ? AND id = ? AND ifnull(title, '') = ?").unwrap();
@@ -144,7 +144,7 @@ impl<'a, 'b> From<Row<'a, 'b>> for Combo {
 }
 
 pub fn load_recent(count: u32) -> Vec<Combo> {
-    let db = DB.lock().unwrap();
+    let db = DB.lock();
 
     let mut stmt = db.prepare_cached("
         SELECT * FROM combo

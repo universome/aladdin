@@ -1,13 +1,9 @@
 use std::thread;
-use std::iter;
 use std::sync::mpsc::{self, Sender, Receiver};
-use std::sync::{Arc, RwLock, RwLockReadGuard};
-use std::collections::HashSet;
-use std::hash::{Hash, Hasher};
-use std::mem;
+use std::sync::Arc;
 use time;
 
-use constants::{CHECK_TIMEOUT, BASE_STAKE, MAX_STAKE, MIN_PROFIT, MAX_PROFIT};
+use constants::{TABLE_CAPACITY, CHECK_TIMEOUT, BASE_STAKE, MAX_STAKE, MIN_PROFIT, MAX_PROFIT};
 use constants::ACCOUNTS;
 use base::currency::Currency;
 use base::barrier::Barrier;
@@ -16,78 +12,46 @@ use combo::{self, Combo, Bet};
 
 pub use self::bookie::Bookie;
 pub use self::bookie::Stage as BookieStage;
-pub use self::bucket::Bucket;
+pub use self::table::Table;
 
 use self::opportunity::{Strategy, MarkedOutcome};
 
 #[derive(Clone)]
 pub struct MarkedOffer(pub &'static Bookie, pub Offer);
 
-#[derive(Clone)]
-struct HashableOffer(Offer);
-
-impl Hash for HashableOffer {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        matcher::round_date(self.0.date).hash(state);
-        self.0.game.hash(state);
-        self.0.kind.hash(state);
-        self.0.outcomes.len().hash(state);
-    }
-}
-
-impl Eq for HashableOffer {}
-
-impl PartialEq for HashableOffer {
-    fn eq(&self, other: &HashableOffer) -> bool {
-        matcher::compare_offers(&self.0, &other.0)
-    }
-}
-
-impl AsRef<HashableOffer> for Offer {
-    fn as_ref(&self) -> &HashableOffer {
-        unsafe { mem::transmute(self) }
-    }
-}
-
-enum Action {
-    Upsert(MarkedOffer),
-    Remove(MarkedOffer)
-}
-
 mod matcher;
 mod bookie;
-mod bucket;
+mod table;
 mod opportunity;
 
 lazy_static! {
     pub static ref BOOKIES: Vec<Bookie> = init_bookies();
-    static ref BUCKET: RwLock<Bucket> = RwLock::new(Bucket::new());
-}
-
-pub fn acquire_bucket() -> RwLockReadGuard<'static, Bucket> {
-    BUCKET.read().unwrap()
+    pub static ref TABLE: Table = Table::new(TABLE_CAPACITY);
 }
 
 pub fn run() {
     let (tx, rx) = mpsc::channel();
 
-    for bookie in BOOKIES.iter() {
-        let tx = tx.clone();
-
-        thread::Builder::new()
-            .name(bookie.host.clone())
-            .spawn(move || run_gambler(bookie, tx))
-            .unwrap();
-    }
-
-    process_channel(rx);
+    accumulation(tx);
+    resolution(rx);
 }
 
 fn init_bookies() -> Vec<Bookie> {
     ACCOUNTS.iter().map(|info| Bookie::new(info.0, info.1, info.2)).collect()
 }
 
-fn run_gambler(bookie: &'static Bookie, chan: Sender<Action>) {
+fn accumulation(chan: Sender<Offer>) {
+    for bookie in BOOKIES.iter() {
+        let tx = chan.clone();
+
+        thread::Builder::new()
+            .name(bookie.host.clone())
+            .spawn(move || run_gambler(bookie, tx))
+            .unwrap();
+    }
+}
+
+fn run_gambler(bookie: &'static Bookie, chan: Sender<Offer>) {
     struct Guard(&'static Bookie);
 
     impl Drop for Guard {
@@ -99,68 +63,38 @@ fn run_gambler(bookie: &'static Bookie, chan: Sender<Action>) {
     loop {
         let _guard = Guard(bookie);
 
-        bookie.watch(&|offer, upsert| {
-            let marked = MarkedOffer(bookie, offer);
+        bookie.watch(|offer, upsert| {
+            let marked = MarkedOffer(bookie, offer.clone());
 
-            chan.send(match upsert {
-                true => Action::Upsert(marked),
-                false => Action::Remove(marked)
-            }).unwrap();
+            if upsert {
+                if TABLE.update_offer(marked) >= 2 {
+                    chan.send(offer).unwrap();
+                }
+            } else {
+                TABLE.remove_offer(&marked);
+            }
         });
     }
 }
 
 fn degradation(bookie: &'static Bookie) {
-    let mut bucket = BUCKET.write().unwrap();
     let outdated = bookie.drain();
 
     info!("Degradation of {}. Removing {} offers...", bookie.host, outdated.len());
 
     for offer in outdated {
-        bucket.remove_offer(&MarkedOffer(bookie, offer));
+        TABLE.remove_offer(&MarkedOffer(bookie, offer));
     }
 }
 
-fn process_channel(chan: Receiver<Action>) {
-    // TODO(loyd): the average number of elements in the set indicates the system load.
-    let mut updated = HashSet::new();
-    let mut excess = None;
-
-    loop {
-        let action = excess.take().unwrap_or_else(|| chan.recv().unwrap());
-        let iter = iter::once(action).chain(chan.try_iter());
-
-        let mut bucket = BUCKET.write().unwrap();
-
-        // Drain the action channel.
-        for action in iter {
-            match action {
-                Action::Upsert(marked) => {
-                    updated.insert(HashableOffer(marked.1.clone()));
-                    bucket.update_offer(marked);
-                },
-                Action::Remove(marked) => bucket.remove_offer(&marked)
-            }
-        }
-
-        // Drain the updated markets while the channel is empty.
-        while !updated.is_empty() {
-            excess = chan.try_recv().ok();
-
-            if excess.is_some() {
-                break;
-            }
-
-            // Take one of the updated markets and check it.
-            if let Some(key) = updated.iter().next().cloned() {
-                updated.remove(&key);
-
-                if let Some(market) = bucket.get_market(&key.0) {
-                    realize_market(market);
-                }
-            }
+fn resolution(chan: Receiver<Offer>) {
+    for offer in chan {
+        if let Some(market) = TABLE.get_market(&offer) {
+            realize_market(&*market);
         }
     }
+
+    info!("Channel has hung up!");
 }
 
 fn realize_market(market: &[MarkedOffer]) {
@@ -169,7 +103,7 @@ fn realize_market(market: &[MarkedOffer]) {
     }
 
     if let Some(marked) = market.iter().find(|m| m.0.stage() != BookieStage::Running) {
-        warn!("Bookie {} isn't running, but the bucket contains offer(s) by it", marked.0.host);
+        warn!("Bookie {} isn't running, but the table contains offer(s) by it", marked.0.host);
         return;
     }
 
@@ -213,7 +147,7 @@ fn realize_market(market: &[MarkedOffer]) {
     }
 
     if MIN_PROFIT <= min_profit && min_profit <= MAX_PROFIT {
-        // TODO(loyd): drop offers instead of whole bucket.
+        // TODO(loyd): drop offers instead of whole market.
         if !no_bets_on_market(market) {
             return;
         }
