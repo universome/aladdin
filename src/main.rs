@@ -1,5 +1,4 @@
-#![feature(plugin, custom_derive, static_in_const, specialization, conservative_impl_trait)]
-#![plugin(serde_macros)]
+#![feature(proc_macro, custom_derive, static_in_const, specialization, conservative_impl_trait)]
 
 #[macro_use]
 extern crate log;
@@ -17,6 +16,8 @@ extern crate url;
 extern crate mime;
 extern crate serde;
 extern crate serde_json;
+#[macro_use]
+extern crate serde_derive;
 extern crate websocket;
 extern crate rusqlite;
 extern crate backtrace;
