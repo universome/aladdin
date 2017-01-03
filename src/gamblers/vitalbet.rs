@@ -575,6 +575,7 @@ fn get_game(event: &Event) -> Option<Game> {
         "Table Tennis" => Game::TableTennis,
         "Tennis" => Game::Tennis,
         "Volleyball" => Game::Volleyball,
+        "Specials" => return None,
         game => {
             warn!("New game on vitalbet: {:?}", game);
             return None;
