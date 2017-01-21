@@ -549,6 +549,7 @@ fn get_game(event: &Event) -> Option<Game> {
             "Halo" => Game::Halo,
             "World of Tanks" => Game::WorldOfTanks,
             "Vainglory" => Game::Vainglory,
+            "Clash Royale" => return None,
             game => {
                 warn!("New game in vitalbet eSports: {:?}", game);
                 return None;
@@ -575,6 +576,7 @@ fn get_game(event: &Event) -> Option<Game> {
         "Table Tennis" => Game::TableTennis,
         "Tennis" => Game::Tennis,
         "Volleyball" => Game::Volleyball,
+        "Cycling" => Game::BicycleRacing,
         "Specials" => return None,
         game => {
             warn!("New game on vitalbet: {:?}", game);
