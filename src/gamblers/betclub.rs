@@ -356,6 +356,7 @@ fn get_game(event: &Event) -> Option<Game> {
             "Hearthstone" => Game::Hearthstone,
             "League of Legends" => Game::LeagueOfLegends,
             "Overwatch" => Game::Overwatch,
+            "Smite" => Game::Smite,
             "World of Tanks" => Game::WorldOfTanks,
             unsupported => {
                 warn!("Found new type: \"{}\"", unsupported);
