@@ -4,6 +4,8 @@ use std::str::Chars;
 
 use markets::{Offer, Game, Kind, Outcome, DRAW};
 
+const UNVALID_TOKENS: &[&str] = &["", "de", "fc", "sc", "fk", "city", "club", "state", "st."];
+
 #[derive(Debug, Clone, Copy)]
 struct Token<'a>(&'a str);
 
@@ -95,7 +97,7 @@ pub fn compare_offers(left: &Offer, right: &Offer) -> bool {
                 continue;
             }
 
-            let sim = outcomes_sim(left_outcome, right_outcome);
+            let sim = titles_sim(&left_outcome.0, &right_outcome.0);
 
             if sim >= max_sim {
                 max_sim = sim;
@@ -112,8 +114,8 @@ pub fn compare_offers(left: &Offer, right: &Offer) -> bool {
 }
 
 #[inline]
-fn outcomes_sim(lhs: &Outcome, rhs: &Outcome) -> f64 {
-    titles_sim(&lhs.0, &rhs.0) * 0.8 + coefs_sim(lhs.1, rhs.1) * 0.2
+fn titles_sim(left: &str, right: &str) -> f64 {
+    tokens_sim(left, right).max(tokens_sim(right, left))
 }
 
 #[inline]
@@ -121,13 +123,7 @@ fn coefs_sim(lhs: f64, rhs: f64) -> f64 {
     1. - (lhs - rhs).abs() / (lhs + rhs) // ultra formula :|
 }
 
-#[inline]
-fn titles_sim(left: &str, right: &str) -> f64 {
-    tokens_sim(left, right) * 0.5 + tokens_sim(right, left) * 0.5
-}
-
 // Calculates how much tokens from the left string fits to the right one
-// TODO(universome): rename it
 fn tokens_sim(left: &str, right: &str) -> f64 {
     let mut score = 0.;
 
@@ -151,13 +147,13 @@ fn tokens_sim(left: &str, right: &str) -> f64 {
         score += max_score;
     }
 
-    score / (get_tokens(left).count() as f64)
+    score / get_tokens(left).count() as f64
 }
 
 fn get_tokens<'a>(title: &'a str) -> impl Iterator<Item = Token<'a>> {
     title
         .split(|c: char| c.is_whitespace() || c == '-' || c == '/')
-        .filter(|s| !s.is_empty() || s != &"FC" || s != &"FK" || s != &"City" || s != &"Club")
+        .filter(|s| !UNVALID_TOKENS.contains(&s.to_lowercase().as_str()))
         .map(Token::from)
         .filter(|token| !token.is_empty())
 }
@@ -202,12 +198,12 @@ pub fn collate_outcomes<'a>(etalon: &[Outcome], outcomes: &'a [Outcome]) -> Vec<
 }
 
 // Finds most similar outcome and returns its index in slice.
-fn most_similar_outcome(outcome: &Outcome, outcomes: &[&Outcome]) -> usize {
+fn most_similar_outcome(lhs: &Outcome, outcomes: &[&Outcome]) -> usize {
     let mut max_sim = 0.;
     let mut index = 0;
 
-    for (i, o) in outcomes.iter().enumerate() {
-        let sim = outcomes_sim(outcome, o);
+    for (i, rhs) in outcomes.iter().enumerate() {
+        let sim = titles_sim(&lhs.0, &rhs.0) * 0.8 + coefs_sim(lhs.1, rhs.1) * 0.2;
 
         if sim > max_sim {
             max_sim = sim;
@@ -302,6 +298,11 @@ mod tests {
             &offer!("Internazionale Milano", 2.08, "Fiorentina", 3.96, DRAW, 3.58),
             &offer!("Inter Milan", 2.06, DRAW, 3.55, "Fiorentina", 3.79)
         ));
+
+        assert!(compare_offers(
+            &offer!("Northern Iowa", 5.5, "Wichita State", 1.169),
+            &offer!("North. Iowa", 5.1, "Wichita St.", 1.17)
+        ));
     }
 
     #[test]
@@ -318,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn compare_very_different_offers() {
+    fn compare_different_offers() {
         assert!(!compare_offers(
             &offer!("Deportivo Alaves", 2.62, "Espanyol", 3.16, DRAW, 3.18),
             &offer!("Espanyol B", 2.21, DRAW, 3.32, "Mallorca B", 3.27)
@@ -367,6 +368,11 @@ mod tests {
         assert!(!compare_offers(
             &offer!("HC La Chaux De Fonds", 1.18, DRAW, 7., "HC Biasca", 8.75),
             &offer!("SCL Tigers", 2.35, DRAW, 4.1, "Lausanne HC", 2.45)
+        ));
+
+        assert!(!compare_offers(
+            &offer!("HC Lugano", 1.55, DRAW, 4.75, "SC Langenthal", 4.25),
+            &offer!("Red Ice Martigny", 2.65, "SC Langenthal", 2.1, DRAW, 4.6)
         ));
     }
 
