@@ -308,6 +308,10 @@ fn get_offer(event: &Event) -> Option<Offer> {
 fn get_outcomes(event: &Event, market: &Market) -> Option<Vec<Outcome>> {
     let x2 = if market.Rates.len() > 2 { 2 } else { 1 };
 
+    if market.Rates[0].AddToBasket.r == 0. || market.Rates[x2].AddToBasket.r == 0. {
+        return None;
+    }
+
     let mut outcomes = vec![
         Outcome(event.TeamsGroup[0].clone(), market.Rates[0].AddToBasket.r),
         Outcome(event.TeamsGroup[1].clone(), market.Rates[x2].AddToBasket.r)
@@ -352,6 +356,7 @@ fn get_game(event: &Event) -> Option<Game> {
             "Hearthstone" => Game::Hearthstone,
             "League of Legends" => Game::LeagueOfLegends,
             "Overwatch" => Game::Overwatch,
+            "Smite" => Game::Smite,
             "World of Tanks" => Game::WorldOfTanks,
             unsupported => {
                 warn!("Found new type: \"{}\"", unsupported);
