@@ -16,7 +16,7 @@ pub const HISTORY_SIZE: u32 = 20;
 pub const TABLE_CAPACITY: usize = 5000;
 
 pub const MIN_PROFIT: f64 = 0.02;
-pub const MAX_PROFIT: f64 = 0.15;
+pub const MAX_PROFIT: f64 = 0.20;
 
 pub const DATABASE: &str = "aladdin.db";
 
